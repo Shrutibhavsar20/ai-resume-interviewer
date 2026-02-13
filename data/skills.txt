@@ -1,0 +1,9 @@
+python
+java
+fastapi
+django
+sql
+machine learning
+data analysis
+git
+docker
