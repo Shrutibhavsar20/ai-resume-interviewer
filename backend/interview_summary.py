@@ -14,11 +14,17 @@ def generate_interview_summary():
 
     for item in history:
         if item["score"] >= 7:
-            strengths.append(item["question"])
-        else:
-            weaknesses.append(item["question"])
+            strengths.append(item["summary"])
 
-    # Final recommendation logic
+        if item.get("mistakes"):
+            weaknesses.extend(item["mistakes"])
+
+        if item.get("improvements"):
+            weaknesses.extend(item["improvements"])
+
+    strengths = list(dict.fromkeys(strengths))[:3]
+    weaknesses = list(dict.fromkeys(weaknesses))[:3]
+
     if avg_score >= 8:
         recommendation = "Strong candidate – ready for mid-level roles"
     elif avg_score >= 6:
@@ -29,7 +35,7 @@ def generate_interview_summary():
     return {
         "questions_attempted": len(history),
         "average_score": avg_score,
-        "strengths": strengths[:3],
-        "weaknesses": weaknesses[:3],
+        "strengths": strengths,
+        "weaknesses": weaknesses,
         "recommendation": recommendation
     }

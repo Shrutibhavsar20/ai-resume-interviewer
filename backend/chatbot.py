@@ -1,4 +1,5 @@
 import os
+import json
 import requests
 from dotenv import load_dotenv
 from backend.session import SESSION
@@ -13,11 +14,9 @@ GEMINI_URL = (
 )
 
 def chat_with_interviewer(user_message: str):
-    import json
-    import requests
-
-    # 1️⃣ FIRST QUESTION (when interview starts)
+    # 1️⃣ BUILD PROMPT
     if SESSION["current_question"] is None:
+        # First question
         prompt = f"""
 You are a technical interviewer.
 
@@ -33,7 +32,7 @@ Candidate skills:
 {', '.join(SESSION['skills'])}
 """
     else:
-        # 2️⃣ USER ANSWERING A QUESTION
+        # Answer evaluation
         prompt = f"""
 You are a technical interviewer.
 
@@ -60,48 +59,66 @@ Candidate Answer:
         ]
     }
 
-    response = requests.post(
-        f"{GEMINI_URL}?key={API_KEY}",
-        json=payload,
-        headers={"Content-Type": "application/json"}
-    )
-
-    response.raise_for_status()
-
-    # 🔹 Extract text
-    text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-
-    # 🔹 CLEAN MARKDOWN IF GEMINI ADDS ```json
-    text = text.strip()
-    if text.startswith("```"):
-        text = (
-            text.replace("```json", "")
-            .replace("```", "")
-            .strip()
+    # 2️⃣ CALL GEMINI SAFELY
+    try:
+        response = requests.post(
+            f"{GEMINI_URL}?key={API_KEY}",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=20
         )
 
-    # 🔹 SAFE JSON PARSING
+        # 🚨 HANDLE RATE LIMIT
+        if response.status_code == 429:
+            return {
+                "error": "AI service is busy. Please wait 1–2 minutes and try again."
+            }
+
+        response.raise_for_status()
+
+    except requests.exceptions.RequestException as e:
+        return {
+            "error": "Failed to contact AI service",
+            "details": str(e)
+        }
+
+    # 3️⃣ EXTRACT RESPONSE TEXT
+    try:
+        text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError):
+        return {
+            "error": "Unexpected AI response format"
+        }
+
+    # 4️⃣ CLEAN MARKDOWN IF PRESENT
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.replace("```json", "").replace("```", "").strip()
+
+    # 5️⃣ PARSE JSON SAFELY
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
         return {
-            "error": "LLM returned invalid JSON",
+            "error": "AI returned invalid JSON",
             "raw_response": text
         }
 
-    # 3️⃣ HANDLE FIRST QUESTION RESPONSE
+    # 6️⃣ HANDLE FIRST QUESTION
     if SESSION["current_question"] is None:
         SESSION["current_question"] = data["next_question"]
-        return {"question": data["next_question"]}
+        return {
+            "question": data["next_question"]
+        }
 
-    # 4️⃣ SAVE HISTORY
+    # 7️⃣ SAVE INTERVIEW HISTORY
     SESSION["history"].append({
         "question": SESSION["current_question"],
         "answer": user_message,
-        "score": data["score"]
+        "score": data.get("score", 0)
     })
 
+    # 8️⃣ UPDATE CURRENT QUESTION
     SESSION["current_question"] = data["next_question"]
 
     return data
-

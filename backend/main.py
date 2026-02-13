@@ -1,3 +1,7 @@
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+from pathlib import Path
+
 from fastapi import FastAPI, UploadFile, File
 from backend.models import ChatRequest, QuestionRequest
 import shutil
@@ -14,6 +18,15 @@ from pydantic import BaseModel
 from backend.interview_summary import generate_interview_summary
 
 app = FastAPI()
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Serve frontend static files
+app.mount(
+    "/static",
+    StaticFiles(directory=BASE_DIR / "frontend"),
+    name="static"
+)
 
 @app.post("/upload-resume/")
 async def upload_resume(file: UploadFile = File(...)):
@@ -57,3 +70,8 @@ def interview_chat(data: ChatRequest):
 @app.get("/interview-summary/")
 def interview_summary():
     return generate_interview_summary()
+
+@app.get("/", response_class=HTMLResponse)
+def chatbot_ui():
+    html_file = BASE_DIR / "frontend" / "index.html"
+    return html_file.read_text(encoding="utf-8")
