@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, FileResponse, Response
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File
-from backend.models import ChatRequest, QuestionRequest, LoginRequest, SignupRequest, ResetPasswordRequest, PDFDownloadRequest
+from backend.models import ChatRequest, QuestionRequest, LoginRequest, SignupRequest, ResetPasswordRequest
 import shutil
 
 from backend.resume_parser import extract_text_from_pdf, clean_text
@@ -18,7 +18,6 @@ from pydantic import BaseModel
 from backend.interview_summary import generate_interview_summary
 from backend.auth import login_user, register_user, reset_password
 from backend.session import SESSION
-from backend.pdf_generator import generate_interview_pdf
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -128,36 +127,7 @@ def debug_session():
         "history_items": SESSION.get("history", [])
     }
 
-@app.post("/download-pdf/")
-def download_interview_pdf(data: PDFDownloadRequest):
-    """Generate and download interview summary as PDF"""
-    try:
-        user_name = data.user_name
-        level = data.level
-        qa_pairs = data.questions_answers or []
-        avg_score = data.avg_score or 0
-        
-        # Generate PDF
-        pdf_bytes = generate_interview_pdf(
-            user_name=user_name,
-            level=level,
-            questions_answers=qa_pairs,
-            avg_score=avg_score,
-            total_questions=len(qa_pairs),
-            total_answered=len(qa_pairs)
-        )
-        
-        # Return PDF with proper headers
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=interview-summary.pdf"}
-        )
-    except Exception as e:
-        print(f"PDF generation error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return {"error": f"PDF generation failed: {str(e)}"}
+# Download endpoint removed per request — no download functionality exposed
 
 
 @app.get("/", response_class=HTMLResponse)

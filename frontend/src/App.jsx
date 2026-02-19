@@ -385,55 +385,6 @@ function SummaryModal({ messages, level, onClose, userName }) {
           }}>
             Done ✓
           </button>
-          <button onClick={async () => {
-            try {
-              const scoreValue = avgScore === "N/A" ? 0 : parseFloat(avgScore);
-              console.log("Downloading PDF with:", { user_name: userName, level: level, qaPairs, avgScore: scoreValue });
-              
-              const res = await fetch(`${API}/download-pdf/`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
-                  user_name: userName, 
-                  level: level,
-                  questions_answers: qaPairs,
-                  avg_score: scoreValue
-                })
-              });
-              
-              console.log("Response status:", res.status);
-              console.log("Response headers:", res.headers.get("content-type"));
-              
-              if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(`Server ${res.status}: ${errText}`);
-              }
-              
-              const blob = await res.blob();
-              console.log("Blob size:", blob.size, "Type:", blob.type);
-              
-              if (blob.size === 0) {
-                throw new Error("PDF file is empty");
-              }
-              
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = "interview-summary.pdf";
-              a.click();
-              
-              console.log("PDF download triggered successfully");
-            } catch (err) {
-              console.error("Download error:", err);
-              alert(`❌ Download failed: ${err.message}\n\nPlease check console for details.`);
-            }
-          }} style={{
-            padding:"13px 20px", borderRadius:10,
-            background:C.bg3, border:`1px solid ${C.border}`,
-            color:C.muted2, fontWeight:600, fontSize:14,
-            cursor:"pointer", fontFamily:"inherit",
-          }}>
-            ⬇ Download
-          </button>
         </div>
       </div>
     </div>
