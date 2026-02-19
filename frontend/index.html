@@ -2,35 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>AI Resume Interviewer</title>
-    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>frontend</title>
   </head>
   <body>
-    <div class="container">
-      <h2>🤖 AI Resume Interviewer</h2>
-
-      <!-- Resume Upload -->
-      <div class="upload-box">
-        <input type="file" id="resumeFile" accept=".pdf" />
-        <button onclick="uploadResume()">Upload Resume</button>
-        <p id="uploadStatus"></p>
-      </div>
-
-      <!-- Chat Window -->
-      <div class="chat-box" id="chatBox"></div>
-
-      <!-- Chat Input -->
-      <div class="input-box">
-        <input type="text" id="userInput" placeholder="Type your answer..." />
-        <button onclick="sendMessage()">Send</button>
-      </div>
-
-      <!-- Summary -->
-      <button class="summary-btn" onclick="getSummary()">
-        End Interview & View Summary
-      </button>
-    </div>
-
-    <script src="/static/script.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

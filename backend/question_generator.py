@@ -1,8 +1,11 @@
-import google.generativeai as genai
+import requests
 import os
+from dotenv import load_dotenv
 
-# Configure the API key
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+load_dotenv()
+
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")
 
 def generate_questions(skills: list, level: str = "intermediate"):
     """
@@ -16,33 +19,34 @@ def generate_questions(skills: list, level: str = "intermediate"):
         List of generated questions
     """
     
-    # Use the NEW model name
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    # Use Ollama model
     
     skills_text = ", ".join(skills)
     
-    prompt = f"""
-    You are an expert technical interviewer. Generate 5 {level}-level interview questions 
-    based on the following skills: {skills_text}
-    
-    Requirements:
-    - Questions should be practical and test real understanding
-    - Mix of conceptual and scenario-based questions
-    - Appropriate for {level} level candidates
-    - Return ONLY the questions, numbered 1-5
-    - Each question on a new line
-    
-    Format:
-    1. [Question 1]
-    2. [Question 2]
-    ...
-    """
+    prompt = f"""You are an expert technical interviewer. Generate 5 {level}-level interview questions based on the following skills: {skills_text}
+
+Requirements:
+- Questions should be practical and test real understanding
+- Mix of conceptual and scenario-based questions
+- Appropriate for {level} level candidates
+- Return ONLY the questions, numbered 1-5
+- Each question on a new line
+
+Format:
+1. [Question 1]
+2. [Question 2]
+..."""
     
     try:
-        response = model.generate_content(prompt)
+        response = requests.post(
+            f"{OLLAMA_API_URL}/api/generate",
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            timeout=30
+        )
+        response.raise_for_status()
         
-        # Extract the text from response
-        questions_text = response.text
+        response_data = response.json()
+        questions_text = response_data.get("response", "")
         
         # Split into individual questions
         questions = [q.strip() for q in questions_text.strip().split('\n') if q.strip()]

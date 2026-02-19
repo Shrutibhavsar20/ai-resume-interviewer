@@ -12,3 +12,23 @@ class AnswerRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    level: str = "medium"
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    new_password: str
+
+class PDFDownloadRequest(BaseModel):
+    user_name: str
+    level: str = "mid"
+    questions_answers: list = []
+    avg_score: float = 0

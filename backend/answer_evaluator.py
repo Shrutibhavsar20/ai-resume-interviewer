@@ -1,15 +1,12 @@
 import os
 import requests
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
 
-API_KEY = os.getenv("GEMINI_API_KEY")
-
-GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1/models/"
-    "gemini-2.5-flash:generateContent"
-)
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")
 
 def evaluate_answer(question: str, answer: str):
     prompt = f"""
@@ -35,23 +32,13 @@ Candidate Answer:
 {answer}
 """
 
-    payload = {
-        "contents": [
-            {
-                "parts": [{"text": prompt}]
-            }
-        ]
-    }
-
     response = requests.post(
-        f"{GEMINI_URL}?key={API_KEY}",
-        json=payload,
+        f"{OLLAMA_API_URL}/api/generate",
+        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
         headers={"Content-Type": "application/json"}
     )
 
     response.raise_for_status()
-
-    raw_text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-
-    import json
+    response_data = response.json()
+    raw_text = response_data.get("response", "")
     return json.loads(raw_text)
