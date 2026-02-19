@@ -16,7 +16,7 @@ from backend.chatbot import chat_with_interviewer
 from pydantic import BaseModel
 
 from backend.interview_summary import generate_interview_summary
-from backend.auth import login_user, register_user, reset_password
+from backend.auth import login_user, register_user, reset_password, oauth_login
 from backend.session import SESSION
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,6 +62,20 @@ async def reset_pwd(request: ResetPasswordRequest):
     if result.get("success"):
         return {"success": True, "message": "Password reset successfully"}
     return {"success": False, "error": result.get("error", "Password reset failed")}
+
+@app.post("/auth/oauth-callback/")
+async def oauth_callback(request: dict):
+    """Handle OAuth login (Google/LinkedIn/GitHub)"""
+    email = request.get("email")
+    name = request.get("name")
+    
+    if not email or not name:
+        return {"success": False, "error": "Email and name are required"}
+    
+    result = oauth_login(email, name)
+    if result.get("success"):
+        return {"success": True, "user": result.get("user")}
+    return {"success": False, "error": result.get("error", "OAuth login failed")}
 
 # ─── INTERVIEW ENDPOINTS ────────────────────────────────────────────────────
 @app.post("/upload-resume/")

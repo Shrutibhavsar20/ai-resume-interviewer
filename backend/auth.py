@@ -78,3 +78,29 @@ def reset_password(email: str, new_password: str) -> dict:
     users[email]["password"] = hash_password(new_password)
     save_users(users)
     return {"success": True, "message": "Password reset successfully"}
+
+def oauth_login(email: str, name: str) -> dict:
+    """Handle OAuth login (Google/LinkedIn/GitHub) — auto-register or login"""
+    users = load_users()
+    
+    if not email or "@" not in email:
+        return {"success": False, "error": "Invalid email from OAuth provider"}
+    
+    # Auto-register if user doesn't exist
+    if email not in users:
+        users[email] = {
+            "name": name or email.split("@")[0],
+            "password": "",  # OAuth users have no password
+            "oauth": True,
+            "created_at": datetime.now().isoformat()
+        }
+        save_users(users)
+    
+    user = users[email]
+    return {
+        "success": True,
+        "user": {
+            "name": user.get("name", email.split("@")[0]),
+            "email": email
+        }
+    }

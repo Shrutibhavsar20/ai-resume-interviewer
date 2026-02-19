@@ -3,5 +3,16 @@
     "name": "Shruti bhavsar",
     "password": "b581473e24cfdec4e125864fe3add33ee5271e2c304ddb022635cb2f9f3b7a10",
     "created_at": "2026-02-18T10:55:33.514638"
+  },
+  "gunjan@gmail.com": {
+    "name": "Uniee Singh",
+    "password": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
+    "created_at": "2026-02-19T15:42:37.427118"
+  },
+  "user@example.com": {
+    "name": "User",
+    "password": "",
+    "oauth": true,
+    "created_at": "2026-02-19T16:06:50.174689"
   }
 }
