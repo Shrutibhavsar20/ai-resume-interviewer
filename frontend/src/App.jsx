@@ -1286,9 +1286,7 @@ function CodeTerminalPanel({ onSendCode, onClose }) {
   );
 }
 function InterviewPage({ user, onBack, onSessionComplete }) {
-  const [messages, setMessages] = useState([
-    { role:"bot", text:"Hi! I'm Aria, your AI interviewer powered by Ollama 🤖\n\nPlease upload your resume first so I can tailor questions to your experience. Then we'll get started!" }
-  ]);
+  const [messages, setMessages] = useState([]);
   const [input, setInput]       = useState("");
   const [level, setLevel]       = useState("mid");
   const [uploading, setUploading]   = useState(false);
@@ -1298,10 +1296,96 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
   const [showSummary, setShowSummary]       = useState(false);
   const [showCodeEditor, setShowCodeEditor] = useState(false);
   const [codingQuestionActive, setCodingQuestionActive] = useState(false);
+  const [interviewMode, setInterviewMode]   = useState(null);
+  const [interviewStarted, setInterviewStarted] = useState(false);
   const fileRef  = useRef(null);
   const chatRef  = useRef(null);
 
-  // Auto-detect if last bot message is a coding question
+  const MODES = {
+    technical: {
+      icon:"⚙️", label:"Technical",
+      color: C.cyan, colorDim: "rgba(6,182,212,0.12)", colorBorder: "rgba(6,182,212,0.35)",
+      desc:"System design, architecture & concepts from your skills",
+      systemPrompt: (lv) => `You are Aria, a strict technical interviewer. The candidate has uploaded their resume. Ask ONLY technical concept questions BASED ON THE SKILLS AND TECHNOLOGIES LISTED IN THEIR RESUME — frameworks, architecture, data structures, system design, databases, APIs, OS concepts etc. Tailor every question to their specific stack and experience. DO NOT ask coding/writing-code questions in this mode. Difficulty level: ${lv}. Start by asking a technical concept question based on their resume skills.`,
+    },
+    practical: {
+      icon:"💻", label:"Practical Coding",
+      color: C.purple, colorDim: "rgba(139,92,246,0.12)", colorBorder: "rgba(139,92,246,0.35)",
+      desc:"Write & run real code challenges in Python, JS and more",
+      systemPrompt: (lv) => `You are Aria, a practical coding interviewer. The candidate has uploaded their resume. Ask ONLY hands-on coding problems BASED ON THE TECH STACK LISTED IN THEIR RESUME (Python, JavaScript, etc.) — write a function, implement an algorithm, fix a bug, explain output. Always include a clear problem statement with examples. Tailor problems to technologies the candidate actually knows from their resume. Difficulty level: ${lv}. Start with a coding problem matched to their resume skills.`,
+    },
+    hr: {
+      icon:"🤝", label:"HR Round",
+      color: C.pink, colorDim: "rgba(236,72,153,0.12)", colorBorder: "rgba(236,72,153,0.35)",
+      desc:"Behavioural, culture fit & career goal questions",
+      systemPrompt: (lv) => `You are Aria, a friendly but probing HR interviewer. The candidate has uploaded their resume. Ask ONLY behavioural, situational and culture-fit questions — reference their past roles, projects, and experiences FROM THEIR RESUME in your questions. Cover: Tell me about yourself, strengths/weaknesses, conflict resolution, career goals, why this company, teamwork, handling failure etc. Use the STAR method. Keep a warm but professional tone. Start with a classic HR opening question that references their background from the resume.`,
+    },
+  };
+
+  // Derived: all 3 steps done?
+  const allReady = uploadDone && interviewMode !== null;
+
+  // Auto-start interview when all conditions met
+  useEffect(() => {
+    if (allReady && !interviewStarted) {
+      setInterviewStarted(true);
+      const m = MODES[interviewMode];
+      setMessages([{
+        role:"bot",
+        text:`🎉 All set! Starting your **${m.label}** round at **${level.charAt(0).toUpperCase()+level.slice(1)}** level.\n\nI'm Aria, your AI interviewer. Let's begin! 🚀`,
+      }]);
+      setTimeout(async () => {
+        setTyping(true);
+        try {
+          const res = await fetch(`${API}/chat/`, {
+            method:"POST", headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify({ message:`[SYSTEM: ${m.systemPrompt(level)}]`, level, mode: interviewMode }),
+          });
+          if (!res.ok) throw new Error(`Server error ${res.status}`);
+          const data = await res.json();
+          setTyping(false);
+          const botReply = data.question || data.response || "Let's get started! Tell me about yourself.";
+          setMessages(prev => [...prev, { role:"bot", text: botReply }]);
+        } catch(e) {
+          setTyping(false);
+          setMessages(prev => [...prev, { role:"bot", text:"Let's begin! Tell me about yourself and your most recent project." }]);
+        }
+      }, 800);
+    }
+  }, [allReady, interviewStarted]);
+
+  const switchMode = async (mode) => {
+    if (!interviewStarted) {
+      setInterviewMode(prev => prev === mode ? null : mode);
+      return;
+    }
+    // Mid-interview round switch
+    if (mode === interviewMode) return;
+    setInterviewMode(mode);
+    const m = MODES[mode];
+    setMessages(prev => [...prev, {
+      role: "bot",
+      text: `🔄 Switching to **${m.label}** round! Let me ask you questions based on your resume for this round.`,
+    }]);
+    setTyping(true);
+    try {
+      const switchPrompt = `[SYSTEM: The candidate wants to switch to the ${m.label} round. ${m.systemPrompt(level)} Resume context is already available. Acknowledge the switch briefly and immediately ask the first question for this round.]`;
+      const res = await fetch(`${API}/chat/`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: switchPrompt, level, mode }),
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const data = await res.json();
+      setTyping(false);
+      const botReply = data.question || data.response || `Great! Let's start the ${m.label} round. Here's your first question based on your resume...`;
+      setMessages(prev => [...prev, { role: "bot", text: botReply }]);
+    } catch (e) {
+      setTyping(false);
+      setMessages(prev => [...prev, { role: "bot", text: `Switching to ${m.label} round! Here's your first question for this round based on your resume.` }]);
+    }
+  };
+
+  // Auto-detect coding question
   useEffect(() => {
     const lastBot = [...messages].reverse().find(m => m.role === "bot");
     if (!lastBot) return;
@@ -1313,10 +1397,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [messages, typing]);
 
-  // When user sends code from the editor, format it as a message
-  const sendCodeToAria = (formattedCode) => {
-    setInput(formattedCode);
-  };
+  const sendCodeToAria = (formattedCode) => { setInput(formattedCode); };
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
@@ -1329,8 +1410,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
       const res = await fetch(`${API}/upload-resume/`, { method:"POST", body:fd });
       if (!res.ok) throw new Error(`Server ${res.status}`);
       setUploadDone(true);
-      setMessages(m => [...m, { role:"bot", text:`📄 Resume uploaded and analyzed!\n\nLet's begin your ${level}-level interview. Tell me about yourself and your most recent role.` }]);
-      setToast({ msg:"✅ Resume uploaded successfully!", type:"success" });
+      setToast({ msg:"✅ Resume uploaded! Now select an interview mode to start.", type:"success" });
     } catch (err) {
       setToast({ msg:`❌ Upload failed: ${err.message}. Is your FastAPI running?`, type:"error" });
     } finally {
@@ -1347,7 +1427,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
     setMessages(newMessages);
     setTyping(true);
     try {
-      const res = await fetch(`${API}/chat/`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ message:msg, level }) });
+      const res = await fetch(`${API}/chat/`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ message:msg, level, mode: interviewMode || "general" }) });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
       setTyping(false);
@@ -1452,83 +1532,248 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
         {/* Sidebar */}
         <div style={{ width:260, borderRight:`1px solid ${C.border}`, background:C.bg2, padding:"20px 16px", display:"flex", flexDirection:"column", gap:16, overflowY:"auto", flexShrink:0 }}>
           {/* Aria profile */}
-          <div style={{ borderRadius:16, padding:"18px", textAlign:"center", background:C.purpleDim, border:`1px solid ${C.border2}` }}>
+          <div style={{ borderRadius:16, padding:"18px", textAlign:"center", background: interviewMode ? MODES[interviewMode].colorDim : C.purpleDim, border:`1px solid ${interviewMode ? MODES[interviewMode].colorBorder : C.border2}`, transition:"all 0.4s" }}>
             <div style={{ width:60, height:60, borderRadius:"50%", background:C.gradBtn, margin:"0 auto 12px", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, boxShadow:`0 4px 20px rgba(139,92,246,0.4)` }}>🤖</div>
             <div style={{ fontSize:15, fontWeight:800 }}>Aria</div>
             <div style={{ fontSize:11, color:C.green, marginTop:4, display:"flex", alignItems:"center", justifyContent:"center", gap:5 }}>
               <div style={{ width:6, height:6, borderRadius:"50%", background:C.green, animation:"pulse 2s ease infinite" }}/>
               Live Interview Mode
             </div>
+            {interviewMode && (
+              <div style={{ marginTop:8, padding:"4px 10px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:5, background:`${MODES[interviewMode].color}22`, border:`1px solid ${MODES[interviewMode].colorBorder}` }}>
+                <span style={{ fontSize:11 }}>{MODES[interviewMode].icon}</span>
+                <span style={{ fontSize:10, fontWeight:800, color:MODES[interviewMode].color }}>{MODES[interviewMode].label}</span>
+              </div>
+            )}
             <div style={{ fontSize:11, color:C.muted2, marginTop:8, lineHeight:1.5 }}>
               {level.charAt(0).toUpperCase()+level.slice(1)}-level · Powered by Ollama
             </div>
           </div>
 
-          {/* Resume */}
-          <div style={{ borderRadius:16, padding:"16px", background:C.bg3, border:`1px solid ${C.border}` }}>
-            <div style={{ fontSize:10, fontWeight:700, marginBottom:10, color:C.muted2, textTransform:"uppercase", letterSpacing:"1px" }}>Resume</div>
-            {!uploadDone ? (
-              <>
-                <div onClick={() => !uploading && fileRef.current?.click()} style={{
-                  border:`2px dashed ${C.border2}`, borderRadius:10,
-                  padding:"18px 12px", textAlign:"center", marginBottom:10,
-                  cursor: uploading ? "not-allowed" : "pointer", transition:"all 0.2s",
-                }}
-                  onMouseEnter={e => !uploading && (e.currentTarget.style.borderColor=C.purple)}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor=C.border2)}>
-                  <div style={{ fontSize:22, marginBottom:5 }}>{uploading ? "⏳" : "📄"}</div>
-                  <div style={{ fontSize:11, color:C.muted2 }}>{uploading ? "Uploading..." : "Click to select PDF"}</div>
+          {/* Status panel — shows setup checklist summary or active session info */}
+          {!interviewStarted ? (
+            <div style={{ borderRadius:16, padding:"16px", background:C.bg3, border:`1px solid ${C.border}` }}>
+              <div style={{ fontSize:10, fontWeight:700, marginBottom:12, color:C.purpleBright, textTransform:"uppercase", letterSpacing:"1px" }}>⚡ Setup Progress</div>
+              {[
+                { label:"Difficulty", done:true, value: level.charAt(0).toUpperCase()+level.slice(1), color:C.purpleBright },
+                { label:"Resume",    done:uploadDone,      value: uploadDone ? "Uploaded ✓" : "Pending…",  color:C.cyan },
+                { label:"Mode",      done:!!interviewMode, value: interviewMode ? MODES[interviewMode].label : "Not selected", color: interviewMode ? MODES[interviewMode].color : C.muted2 },
+              ].map((s,i) => (
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                  <div style={{ width:18, height:18, borderRadius:"50%", background: s.done ? `${s.color}22` : "rgba(255,255,255,0.05)", border:`1px solid ${s.done ? s.color : C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, color:s.color, fontWeight:900, flexShrink:0 }}>{s.done ? "✓" : i+1}</div>
+                  <div style={{ fontSize:11, color:C.muted2 }}>{s.label}:</div>
+                  <div style={{ fontSize:11, fontWeight:700, color: s.done ? s.color : C.muted }}>{s.value}</div>
                 </div>
-                <input ref={fileRef} type="file" accept=".pdf" onChange={handleFileChange} style={{ display:"none" }}/>
-                <button onClick={() => !uploading && fileRef.current?.click()} disabled={uploading} style={{
-                  width:"100%", padding:"8px", borderRadius:8,
-                  background: uploading ? C.bg2 : C.purpleDim2,
-                  border:`1px solid ${uploading ? C.border : C.border2}`,
-                  color: uploading ? C.muted : C.purpleBright,
-                  fontSize:11, cursor: uploading ? "not-allowed" : "pointer",
-                  fontWeight:700, fontFamily:"inherit", transition:"all 0.2s",
-                }}>
-                  {uploading ? "⏳ Uploading..." : "Upload Resume (PDF)"}
-                </button>
-              </>
-            ) : (
-              <div style={{ padding:"12px", borderRadius:10, textAlign:"center", background:C.greenDim, border:"1px solid rgba(16,185,129,0.25)" }}>
-                <div style={{ fontSize:20 }}>✅</div>
-                <div style={{ fontSize:11, color:C.green, marginTop:5, fontWeight:700 }}>Resume analyzed!</div>
-              </div>
-            )}
-          </div>
-
-          {/* Steps */}
-          <div style={{ borderRadius:16, padding:"16px", background:C.bg3, border:`1px solid ${C.border}` }}>
-            <div style={{ fontSize:10, fontWeight:700, marginBottom:12, color:C.purpleBright, textTransform:"uppercase", letterSpacing:"1px" }}>📋 Steps to Follow</div>
-            {[
-              { num:1, text:"Select difficulty level", color:C.purpleBright },
-              { num:2, text:"Upload your resume (PDF)", color:C.cyan },
-              { num:3, text:"Answer Aria's questions", color:C.green },
-              { num:4, text:"View your score & summary", color:C.amber },
-            ].map(s => (
-              <div key={s.num} style={{ display:"flex", alignItems:"center", gap:9, marginBottom:9 }}>
-                <div style={{ width:20, height:20, borderRadius:"50%", background:`${s.color}22`, border:`1px solid ${s.color}66`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:800, color:s.color, flexShrink:0 }}>{s.num}</div>
-                <div style={{ fontSize:11, color:C.muted2, lineHeight:1.4 }}>{s.text}</div>
-              </div>
-            ))}
-            <div style={{ marginTop:12, paddingTop:10, borderTop:`1px solid ${C.border}` }}>
-              <div style={{ fontSize:10, fontWeight:700, marginBottom:8, color:C.muted2, textTransform:"uppercase", letterSpacing:"1px" }}>💡 Quick Tips</div>
-              {["Use STAR format","Keep answers 1–2 min","Ask clarifying questions"].map(tip => (
-                <div key={tip} style={{ fontSize:11, color:C.muted2, marginBottom:7, paddingLeft:10, borderLeft:`2px solid ${C.border2}`, lineHeight:1.5 }}>{tip}</div>
               ))}
+              {!allReady && (
+                <div style={{ marginTop:4, fontSize:11, color:C.amber, padding:"8px 10px", borderRadius:8, background:"rgba(245,158,11,0.08)", border:"1px solid rgba(245,158,11,0.2)", lineHeight:1.5 }}>
+                  {!uploadDone && !interviewMode ? "📋 Follow the 3 steps in the chat →" :
+                   !uploadDone ? "📄 Upload your resume to continue" :
+                   "🎯 Select interview mode to start"}
+                </div>
+              )}
             </div>
-          </div>
+          ) : (
+            <>
+              {/* Resume status */}
+              <div style={{ borderRadius:16, padding:"14px", background:C.bg3, border:`1px solid ${C.border}` }}>
+                <div style={{ fontSize:10, fontWeight:700, marginBottom:8, color:C.muted2, textTransform:"uppercase", letterSpacing:"1px" }}>Resume</div>
+                <div style={{ padding:"10px", borderRadius:10, textAlign:"center", background:C.greenDim, border:"1px solid rgba(16,185,129,0.25)" }}>
+                  <div style={{ fontSize:16 }}>✅</div>
+                  <div style={{ fontSize:11, color:C.green, marginTop:4, fontWeight:700 }}>Resume analyzed!</div>
+                </div>
+              </div>
+
+              {/* Mode selector — switch rounds mid-interview */}
+              <div style={{ borderRadius:16, padding:"16px", background:C.bg3, border:`1px solid ${C.border}` }}>
+                <div style={{ fontSize:10, fontWeight:700, marginBottom:4, color:C.purpleBright, textTransform:"uppercase", letterSpacing:"1px" }}>🎯 Switch Round</div>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:10, lineHeight:1.5 }}>Click any round to switch</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+                  {Object.entries(MODES).map(([key, m]) => {
+                    const isActive = interviewMode === key;
+                    return (
+                      <button key={key} onClick={() => switchMode(key)} style={{
+                        padding:"9px 12px", borderRadius:10, cursor: isActive ? "default" : "pointer",
+                        textAlign:"left", background: isActive ? m.colorDim : "rgba(255,255,255,0.02)",
+                        border:`1px solid ${isActive ? m.colorBorder : C.border}`,
+                        fontFamily:"inherit", transition:"all 0.2s", outline:"none",
+                        opacity: isActive ? 1 : 0.75,
+                      }}
+                        onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = m.colorDim; e.currentTarget.style.borderColor = m.colorBorder; e.currentTarget.style.opacity = "1"; }}}
+                        onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; e.currentTarget.style.borderColor = C.border; e.currentTarget.style.opacity = "0.75"; }}}
+                      >
+                        <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+                          <span style={{ fontSize:14 }}>{m.icon}</span>
+                          <span style={{ fontSize:12, fontWeight:800, color: isActive ? m.color : C.muted2 }}>{m.label}</span>
+                          {isActive && <span style={{ marginLeft:"auto", fontSize:9, fontWeight:900, color:m.color, background:`${m.color}22`, padding:"2px 7px", borderRadius:20 }}>ACTIVE</span>}
+                        </div>
+                        <div style={{ fontSize:10, color:C.muted, marginTop:3, paddingLeft:21 }}>{m.desc}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Tips */}
+              <div style={{ borderRadius:16, padding:"16px", background:C.bg3, border:`1px solid ${C.border}` }}>
+                <div style={{ fontSize:10, fontWeight:700, marginBottom:10, color:C.muted2, textTransform:"uppercase", letterSpacing:"1px" }}>💡 Tips</div>
+                {[
+                  interviewMode==="practical" ? "Use </> to write & run code" : "Use STAR format for answers",
+                  "Keep answers 1–2 min",
+                  interviewMode==="hr" ? "Be honest and specific" : "Ask clarifying questions",
+                ].map(tip => (
+                  <div key={tip} style={{ fontSize:11, color:C.muted2, marginBottom:7, paddingLeft:10, borderLeft:`2px solid ${C.border2}`, lineHeight:1.5 }}>{tip}</div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Chat area */}
         <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-          {/* Messages */}
+          {/* Mode indicator bar — only when interview started */}
+          {interviewStarted && interviewMode && (
+            <div style={{
+              padding:"8px 24px", borderBottom:`1px solid ${C.border}`,
+              background: `linear-gradient(90deg, ${MODES[interviewMode].colorDim}, transparent)`,
+              display:"flex", alignItems:"center", gap:10, flexShrink:0,
+            }}>
+              <span style={{ fontSize:14 }}>{MODES[interviewMode].icon}</span>
+              <span style={{ fontSize:12, fontWeight:700, color:MODES[interviewMode].color }}>{MODES[interviewMode].label} Round</span>
+              <span style={{ fontSize:11, color:C.muted2 }}>·</span>
+              <span style={{ fontSize:11, color:C.muted2 }}>{level.charAt(0).toUpperCase()+level.slice(1)} level</span>
+            </div>
+          )}
+          {/* Messages / Setup Checklist */}
           <div ref={chatRef} style={{
             flex:1, padding:"24px", overflowY:"auto",
             display:"flex", flexDirection:"column", gap:16,
           }}>
+            {/* Guided setup screen — shown before interview starts */}
+            {!interviewStarted && (
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"100%", gap:28, animation:"fadeUp 0.4s ease" }}>
+                {/* Aria greeting */}
+                <div style={{ textAlign:"center", marginBottom:4 }}>
+                  <div style={{ fontSize:44, marginBottom:12 }}>🤖</div>
+                  <div style={{ fontSize:22, fontWeight:900, background:"linear-gradient(135deg, #F1F0FF, #A78BFA)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", marginBottom:8 }}>Hi {user.name.split(" ")[0]}! I'm Aria</div>
+                  <div style={{ fontSize:14, color:C.muted2, maxWidth:420, lineHeight:1.7 }}>Complete the 3 steps below and I'll automatically start your personalised interview session.</div>
+                </div>
+
+                {/* 3-step checklist */}
+                <div style={{ display:"flex", flexDirection:"column", gap:12, width:"100%", maxWidth:460 }}>
+                  {/* Step 1: Difficulty */}
+                  <div style={{
+                    borderRadius:16, padding:"18px 20px",
+                    background: "rgba(255,255,255,0.03)",
+                    border:`2px solid ${C.purpleBright}`,
+                    boxShadow:`0 4px 20px rgba(139,92,246,0.15)`,
+                  }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
+                      <div style={{ width:28, height:28, borderRadius:"50%", background:C.gradBtn, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:900, color:"white", flexShrink:0 }}>✓</div>
+                      <div style={{ fontSize:14, fontWeight:800, color:C.purpleBright }}>Step 1 — Choose Difficulty</div>
+                    </div>
+                    <div style={{ display:"flex", gap:8, paddingLeft:40 }}>
+                      {["junior","mid","senior"].map(l => (
+                        <button key={l} onClick={() => setLevel(l)} style={{
+                          padding:"7px 16px", borderRadius:20, fontSize:12, fontWeight:700, cursor:"pointer",
+                          background: level===l ? C.gradBtn : "rgba(255,255,255,0.04)",
+                          border:`1px solid ${level===l ? "transparent" : C.border}`,
+                          color: level===l ? "white" : C.muted2,
+                          fontFamily:"inherit", transition:"all 0.2s",
+                          boxShadow: level===l ? `0 2px 12px rgba(139,92,246,0.4)` : "none",
+                        }}>{l.charAt(0).toUpperCase()+l.slice(1)}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Step 2: Resume */}
+                  <div style={{
+                    borderRadius:16, padding:"18px 20px",
+                    background: "rgba(255,255,255,0.03)",
+                    border:`2px solid ${uploadDone ? C.green : C.border}`,
+                    boxShadow: uploadDone ? `0 4px 20px rgba(16,185,129,0.12)` : "none",
+                    transition:"all 0.3s",
+                  }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:uploadDone ? 0 : 12 }}>
+                      <div style={{ width:28, height:28, borderRadius:"50%", background: uploadDone ? C.green : "rgba(255,255,255,0.08)", border:`1px solid ${uploadDone ? C.green : C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:900, color:"white", flexShrink:0, transition:"all 0.3s" }}>
+                        {uploadDone ? "✓" : "2"}
+                      </div>
+                      <div style={{ fontSize:14, fontWeight:800, color: uploadDone ? C.green : C.text }}>
+                        Step 2 — Upload Resume {uploadDone && "✅"}
+                      </div>
+                      {uploadDone && <span style={{ marginLeft:"auto", fontSize:11, color:C.green, fontWeight:700 }}>PDF analyzed!</span>}
+                    </div>
+                    {!uploadDone && (
+                      <div style={{ paddingLeft:40 }}>
+                        <input ref={fileRef} type="file" accept=".pdf" onChange={handleFileChange} style={{ display:"none" }}/>
+                        <button onClick={() => !uploading && fileRef.current?.click()} disabled={uploading} style={{
+                          padding:"8px 20px", borderRadius:10,
+                          background: uploading ? C.bg3 : "rgba(6,182,212,0.12)",
+                          border:`1px solid ${uploading ? C.border : "rgba(6,182,212,0.4)"}`,
+                          color: uploading ? C.muted : C.cyan,
+                          fontSize:12, cursor: uploading ? "not-allowed" : "pointer",
+                          fontWeight:700, fontFamily:"inherit", transition:"all 0.2s",
+                        }}>
+                          {uploading ? "⏳ Uploading..." : "📄 Click to upload PDF"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Step 3: Mode */}
+                  <div style={{
+                    borderRadius:16, padding:"18px 20px",
+                    background: "rgba(255,255,255,0.03)",
+                    border:`2px solid ${interviewMode ? MODES[interviewMode].colorBorder : C.border}`,
+                    boxShadow: interviewMode ? `0 4px 20px ${MODES[interviewMode].color}18` : "none",
+                    transition:"all 0.3s",
+                  }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
+                      <div style={{ width:28, height:28, borderRadius:"50%", background: interviewMode ? MODES[interviewMode].color : "rgba(255,255,255,0.08)", border:`1px solid ${interviewMode ? MODES[interviewMode].colorBorder : C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:900, color:"white", flexShrink:0, transition:"all 0.3s" }}>
+                        {interviewMode ? "✓" : "3"}
+                      </div>
+                      <div style={{ fontSize:14, fontWeight:800, color: interviewMode ? MODES[interviewMode].color : C.text }}>Step 3 — Choose Interview Mode</div>
+                    </div>
+                    <div style={{ display:"flex", flexDirection:"column", gap:8, paddingLeft:40 }}>
+                      {Object.entries(MODES).map(([key, m]) => (
+                        <button key={key} onClick={() => switchMode(key)} style={{
+                          padding:"10px 14px", borderRadius:10, cursor:"pointer", textAlign:"left",
+                          background: interviewMode===key ? m.colorDim : "rgba(255,255,255,0.02)",
+                          border:`1px solid ${interviewMode===key ? m.colorBorder : C.border}`,
+                          fontFamily:"inherit", transition:"all 0.2s",
+                        }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                            <span style={{ fontSize:14 }}>{m.icon}</span>
+                            <span style={{ fontSize:12, fontWeight:800, color: interviewMode===key ? m.color : C.text }}>{m.label}</span>
+                            {interviewMode===key && <span style={{ marginLeft:"auto", fontSize:9, color:m.color, fontWeight:800, background:`${m.color}22`, padding:"2px 8px", borderRadius:20, border:`1px solid ${m.colorBorder}` }}>SELECTED</span>}
+                          </div>
+                          <div style={{ fontSize:11, color:C.muted2, marginTop:3, paddingLeft:22 }}>{m.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* CTA: auto starts when all done, shows progress */}
+                <div style={{ width:"100%", maxWidth:460 }}>
+                  {allReady ? (
+                    <div style={{ textAlign:"center", padding:"14px", borderRadius:14, background:"linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.08))", border:"1px solid rgba(16,185,129,0.35)", animation:"glow 1.5s ease infinite" }}>
+                      <div style={{ fontSize:13, fontWeight:800, color:C.green }}>🚀 All set! Starting your interview...</div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign:"center", padding:"12px", borderRadius:14, background:"rgba(255,255,255,0.02)", border:`1px solid ${C.border}` }}>
+                      <div style={{ fontSize:12, color:C.muted2 }}>
+                        {!uploadDone && !interviewMode ? "Complete steps 2 & 3 to start" :
+                         !uploadDone ? "Upload your resume to continue" :
+                         "Choose an interview mode to start"}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Interview messages */}
             {messages.map((m,i) => (
               <div key={i} style={{ display:"flex", justifyContent: m.role==="user"?"flex-end":"flex-start", animation:"fadeUp 0.3s ease" }}>
                 {m.role==="bot" && (
@@ -1606,8 +1851,13 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
             <div style={{ display:"flex", gap:10, marginBottom:10 }}>
               <input value={input} onChange={e=>setInput(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendMessage()}
-                placeholder="Type your answer and press Enter..."
-                disabled={typing}
+                placeholder={
+                  !interviewStarted ? "Complete the 3 setup steps to start your interview..." :
+                  interviewMode==="practical" ? "Type your explanation or click </> to open the Code Editor..." :
+                  interviewMode==="hr" ? "Share your answer using the STAR format..." :
+                  "Type your technical answer..."
+                }
+                disabled={typing || !interviewStarted}
                 style={{
                   flex:1, padding:"14px 20px", borderRadius:14,
                   background:C.bg2, border:`1px solid ${C.border}`,
@@ -1633,13 +1883,13 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
                 onMouseLeave={e=>{e.currentTarget.style.background=codingQuestionActive?"linear-gradient(135deg, rgba(139,92,246,0.3), rgba(6,182,212,0.2))":"rgba(139,92,246,0.1)"; e.currentTarget.style.color=codingQuestionActive?C.purpleBright:C.muted2;}}>
                 {"</>"}
               </button>
-              <button onClick={sendMessage} disabled={typing} style={{
+              <button onClick={sendMessage} disabled={typing || !interviewStarted} style={{
                 padding:"14px 26px", borderRadius:14,
-                background: typing ? C.bg3 : C.gradBtn,
-                border:`1px solid ${typing ? C.border : "transparent"}`,
+                background: (typing || !interviewStarted) ? C.bg3 : C.gradBtn,
+                border:`1px solid ${(typing || !interviewStarted) ? C.border : "transparent"}`,
                 color:"white", fontSize:14, fontWeight:700,
-                cursor: typing ? "not-allowed" : "pointer", fontFamily:"inherit",
-                boxShadow: typing ? "none" : `0 4px 20px rgba(139,92,246,0.36)`,
+                cursor: (typing || !interviewStarted) ? "not-allowed" : "pointer", fontFamily:"inherit",
+                boxShadow: (typing || !interviewStarted) ? "none" : `0 4px 20px rgba(139,92,246,0.36)`,
                 transition:"all 0.2s", minWidth:96,
               }}>
                 {typing ? "···" : "Send →"}
