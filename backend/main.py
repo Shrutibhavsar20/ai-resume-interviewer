@@ -18,9 +18,16 @@ from pydantic import BaseModel
 from backend.interview_summary import generate_interview_summary
 from backend.auth import login_user, register_user, reset_password, oauth_login
 from backend.session import SESSION
+from backend.database import init_db
 
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
+
+# Initialize database
+init_db()
 
 app = FastAPI()
 
@@ -65,7 +72,7 @@ async def reset_pwd(request: ResetPasswordRequest):
 
 @app.post("/auth/oauth-callback/")
 async def oauth_callback(request: dict):
-    """Handle OAuth login (Google/LinkedIn/GitHub)"""
+    """Handle OAuth login (Google/LinkedIn)"""
     email = request.get("email")
     name = request.get("name")
     

@@ -1,106 +1,149 @@
-import json
-import os
-from pathlib import Path
-from datetime import datetime
 import hashlib
-
-# Path to store user data (in production, use a real database)
-USERS_FILE = Path(__file__).parent.parent / "data" / "users.json"
+from sqlalchemy.orm import Session
+from backend.database import User, SessionLocal
 
 def hash_password(password: str) -> str:
     """Hash password for storage"""
     return hashlib.sha256(password.encode()).hexdigest()
 
-def load_users() -> dict:
-    """Load user database"""
-    if USERS_FILE.exists():
-        with open(USERS_FILE, "r") as f:
-            return json.load(f)
-    return {}
+def get_user_by_email(email: str, db: Session = None) -> User:
+    """Get user by email"""
+    if db is None:
+        db = SessionLocal()
+    return db.query(User).filter(User.email == email).first()
 
-def save_users(users: dict):
-    """Save user database"""
-    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(USERS_FILE, "w") as f:
-        json.dump(users, f, indent=2)
-
-def register_user(email: str, password: str, name: str) -> dict:
+def register_user(email: str, password: str, name: str, db: Session = None) -> dict:
     """Register a new user"""
-    users = load_users()
+    if db is None:
+        db = SessionLocal()
     
-    if email in users:
-        return {"success": False, "error": "Email already registered"}
+    try:
+        # Check if user already exists
+        existing_user = get_user_by_email(email, db)
+        if existing_user:
+            return {"success": False, "error": "Email already registered"}
+        
+        # Validate password
+        if len(password) < 6:
+            return {"success": False, "error": "Password must be at least 6 characters"}
+        
+        # Validate email
+        if not email or "@" not in email:
+            return {"success": False, "error": "Invalid email address"}
+        
+        # Create new user
+        new_user = User(
+            email=email,
+            name=name or email.split("@")[0],
+            password=hash_password(password),
+            oauth=False
+        )
+        
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        
+        return {"success": True, "message": "User registered successfully"}
     
-    if len(password) < 6:
-        return {"success": False, "error": "Password must be at least 6 characters"}
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"Registration error: {str(e)}"}
     
-    if not email or "@" not in email:
-        return {"success": False, "error": "Invalid email address"}
-    
-    users[email] = {
-        "name": name or email.split("@")[0],
-        "password": hash_password(password),
-        "created_at": datetime.now().isoformat()
-    }
-    
-    save_users(users)
-    return {"success": True, "message": "User registered successfully"}
+    finally:
+        db.close()
 
-def login_user(email: str, password: str) -> dict:
+def login_user(email: str, password: str, db: Session = None) -> dict:
     """Authenticate user"""
-    users = load_users()
+    if db is None:
+        db = SessionLocal()
     
-    if email not in users:
-        return {"success": False, "error": "Invalid email or password"}
-    
-    user = users[email]
-    if user["password"] != hash_password(password):
-        return {"success": False, "error": "Invalid email or password"}
-    
-    return {
-        "success": True,
-        "user": {
-            "name": user["name"],
-            "email": email
+    try:
+        user = get_user_by_email(email, db)
+        
+        if not user:
+            return {"success": False, "error": "Invalid email or password"}
+        
+        if user.password != hash_password(password):
+            return {"success": False, "error": "Invalid email or password"}
+        
+        return {
+            "success": True,
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "email": email
+            }
         }
-    }
+    
+    except Exception as e:
+        return {"success": False, "error": f"Login error: {str(e)}"}
+    
+    finally:
+        db.close()
 
-def reset_password(email: str, new_password: str) -> dict:
+def reset_password(email: str, new_password: str, db: Session = None) -> dict:
     """Reset user password"""
-    users = load_users()
+    if db is None:
+        db = SessionLocal()
     
-    if email not in users:
-        return {"success": False, "error": "Email not found"}
+    try:
+        user = get_user_by_email(email, db)
+        
+        if not user:
+            return {"success": False, "error": "Email not found"}
+        
+        if len(new_password) < 6:
+            return {"success": False, "error": "Password must be at least 6 characters"}
+        
+        user.password = hash_password(new_password)
+        db.commit()
+        
+        return {"success": True, "message": "Password reset successfully"}
     
-    if len(new_password) < 6:
-        return {"success": False, "error": "Password must be at least 6 characters"}
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"Reset error: {str(e)}"}
     
-    users[email]["password"] = hash_password(new_password)
-    save_users(users)
-    return {"success": True, "message": "Password reset successfully"}
+    finally:
+        db.close()
 
-def oauth_login(email: str, name: str) -> dict:
-    """Handle OAuth login (Google/LinkedIn/GitHub) — auto-register or login"""
-    users = load_users()
+def oauth_login(email: str, name: str, db: Session = None) -> dict:
+    """Handle OAuth login (Google/LinkedIn) — auto-register or login"""
+    if db is None:
+        db = SessionLocal()
     
-    if not email or "@" not in email:
-        return {"success": False, "error": "Invalid email from OAuth provider"}
-    
-    # Auto-register if user doesn't exist
-    if email not in users:
-        users[email] = {
-            "name": name or email.split("@")[0],
-            "password": "",  # OAuth users have no password
-            "oauth": True,
-            "created_at": datetime.now().isoformat()
+    try:
+        # Validate email
+        if not email or "@" not in email:
+            return {"success": False, "error": "Invalid email from OAuth provider"}
+        
+        # Check if user exists
+        user = get_user_by_email(email, db)
+        
+        if not user:
+            # Auto-register new user
+            user = User(
+                email=email,
+                name=name or email.split("@")[0],
+                password="",  # OAuth users have no password
+                oauth=True
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        
+        return {
+            "success": True,
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "email": email
+            }
         }
-        save_users(users)
     
-    user = users[email]
-    return {
-        "success": True,
-        "user": {
-            "name": user.get("name", email.split("@")[0]),
-            "email": email
-        }
-    }
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"OAuth error: {str(e)}"}
+    
+    finally:
+        db.close()

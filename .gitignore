@@ -1,12 +1,44 @@
-# Virtual environment
-venv/
-
-# Environment variables
+# ==============================
+# 🔐 Environment & Secrets
+# ==============================
 .env
+.env.*
+frontend/.env*
+backend/.env*
 
-# Python cache
+# ==============================
+# 🐍 Python
+# ==============================
+venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
 
-# OS files
+# ==============================
+# 📦 Node
+# ==============================
+frontend/node_modules/
+node_modules/
+
+# ==============================
+# 🗄 Database files
+# ==============================
+data/*.db
+*.db
+*.sqlite
+
+# ==============================
+# 🖥 OS Files
+# ==============================
 .DS_Store
+Thumbs.db
+
+# ==============================
+# 🧪 Testing / temp
+# ==============================
+*.log
+*.tmp
+temp_*.pdf
