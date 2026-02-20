@@ -1146,6 +1146,22 @@ export default function App() {
   const [page, setPage] = useState("auth");
   const [user, setUser] = useState(null);
 
+  // Restore session from sessionStorage (persists across refreshes, clears on tab close)
+  useEffect(() => {
+    try {
+      const s = sessionStorage.getItem("session_user");
+      if (s) {
+        const u = JSON.parse(s);
+        if (u && u.email) {
+          setUser(u);
+          setPage("dashboard");
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to restore session:", e);
+    }
+  }, []);
+
   useEffect(() => {
     // Handle OAuth callback from Google
     const params = new URLSearchParams(window.location.search);
@@ -1169,6 +1185,8 @@ export default function App() {
         .then(r => r.json())
         .then(data => {
           if (data.success && data.user) {
+            // persist session for this tab
+            try { sessionStorage.setItem("session_user", JSON.stringify(data.user)); } catch(e){}
             setUser(data.user);
             setPage("dashboard");
             // Clean URL
@@ -1181,7 +1199,10 @@ export default function App() {
     }
   }, []);
 
-  return page==="auth"      ? <AuthPage onLogin={u=>{setUser(u);setPage("dashboard");}}/> :
-         page==="dashboard" ? <Dashboard user={user} onStartInterview={()=>setPage("interview")} onLogout={()=>{setUser(null);setPage("auth");}}/> :
+  return page==="auth"      ? <AuthPage onLogin={u=>{
+                                              try{ sessionStorage.setItem("session_user", JSON.stringify(u)); }catch(e){}
+                                              setUser(u); setPage("dashboard");
+                                            }} /> :
+         page==="dashboard" ? <Dashboard user={user} onStartInterview={()=>setPage("interview")} onLogout={()=>{ try{ sessionStorage.removeItem("session_user"); }catch(e){} setUser(null); setPage("auth"); }} /> :
                               <InterviewPage user={user} onBack={()=>setPage("dashboard")}/>;
 }
