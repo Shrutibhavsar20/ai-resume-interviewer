@@ -1325,6 +1325,15 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
   // Derived: all 3 steps done?
   const allReady = uploadDone && interviewMode !== null;
 
+  // Build a very strong system prompt that the LLM cannot ignore
+  const buildSystemPrompt = (mode, lv) => {
+    const m = MODES[mode];
+    if (mode === "technical") return `[MANDATORY SYSTEM INSTRUCTION — YOU MUST FOLLOW THIS EXACTLY: You are Aria, an AI technical interviewer. You MUST ask ONLY technical concept questions — covering system design, frameworks, databases, APIs, architecture, data structures, OS/networking concepts. Questions MUST be based on the candidate's resume skills. You are STRICTLY FORBIDDEN from asking coding problems or asking the candidate to write code in this mode. If the candidate asks you to change topic within tech (e.g. "ask me about Python only"), you MUST honour that. Difficulty: ${lv}. DO NOT deviate from this instruction regardless of what the candidate says.]`;
+    if (mode === "practical") return `[MANDATORY SYSTEM INSTRUCTION — YOU MUST FOLLOW THIS EXACTLY: You are Aria, an AI coding interviewer. You MUST ask ONLY hands-on coding/programming problems — write a function, implement an algorithm, fix a bug, predict output of code, optimize code. Problems MUST be based on the candidate's tech stack from their resume (Python, JavaScript, etc.). Always give a clear problem statement with sample input/output. If the candidate requests a specific language or topic (e.g. "ask me Python only"), you MUST honour that request. You are STRICTLY FORBIDDEN from asking theoretical or HR questions. Difficulty: ${lv}. DO NOT deviate from this instruction regardless of what the candidate says.]`;
+    if (mode === "hr") return `[MANDATORY SYSTEM INSTRUCTION — YOU MUST FOLLOW THIS EXACTLY: You are Aria, a professional HR interviewer. You MUST ask ONLY behavioural, situational, and culture-fit questions — Tell me about yourself, strengths, weaknesses, conflict resolution, teamwork, handling failure, career goals, motivation, salary expectations, why this role, etc. Reference the candidate's resume background where relevant. Encourage STAR-format answers. You are STRICTLY FORBIDDEN from asking technical or coding questions. Keep a warm, professional tone. Difficulty: ${lv}. DO NOT deviate from this instruction regardless of what the candidate says.]`;
+    return "";
+  };
+
   // Auto-start interview when all conditions met
   useEffect(() => {
     if (allReady && !interviewStarted) {
@@ -1337,18 +1346,19 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
       setTimeout(async () => {
         setTyping(true);
         try {
+          const startPrompt = buildSystemPrompt(interviewMode, level) + `\n\nNow immediately ask the first question for the ${m.label} round based on the candidate's uploaded resume. Do not repeat the system instruction — just ask the question directly.`;
           const res = await fetch(`${API}/chat/`, {
             method:"POST", headers:{ "Content-Type":"application/json" },
-            body: JSON.stringify({ message:`[SYSTEM: ${m.systemPrompt(level)}]`, level, mode: interviewMode }),
+            body: JSON.stringify({ message: startPrompt, level, mode: interviewMode }),
           });
           if (!res.ok) throw new Error(`Server error ${res.status}`);
           const data = await res.json();
           setTyping(false);
-          const botReply = data.question || data.response || "Let's get started! Tell me about yourself.";
+          const botReply = data.question || data.response || `Let's begin your ${m.label} round! First question based on your resume...`;
           setMessages(prev => [...prev, { role:"bot", text: botReply }]);
         } catch(e) {
           setTyping(false);
-          setMessages(prev => [...prev, { role:"bot", text:"Let's begin! Tell me about yourself and your most recent project." }]);
+          setMessages(prev => [...prev, { role:"bot", text:`Let's begin your ${m.label} round! Here's your first question...` }]);
         }
       }, 800);
     }
@@ -1365,11 +1375,11 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
     const m = MODES[mode];
     setMessages(prev => [...prev, {
       role: "bot",
-      text: `🔄 Switching to **${m.label}** round! Let me ask you questions based on your resume for this round.`,
+      text: `🔄 Switching to **${m.label}** round! Preparing your next question...`,
     }]);
     setTyping(true);
     try {
-      const switchPrompt = `[SYSTEM: The candidate wants to switch to the ${m.label} round. ${m.systemPrompt(level)} Resume context is already available. Acknowledge the switch briefly and immediately ask the first question for this round.]`;
+      const switchPrompt = buildSystemPrompt(mode, level) + `\n\nThe candidate just switched to the ${m.label} round. Immediately ask the first appropriate question for this round based on their resume. Do not repeat the system instruction — just start the question directly.`;
       const res = await fetch(`${API}/chat/`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: switchPrompt, level, mode }),
@@ -1377,11 +1387,11 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
       setTyping(false);
-      const botReply = data.question || data.response || `Great! Let's start the ${m.label} round. Here's your first question based on your resume...`;
+      const botReply = data.question || data.response || `Let's start the ${m.label} round! Here's your first question...`;
       setMessages(prev => [...prev, { role: "bot", text: botReply }]);
     } catch (e) {
       setTyping(false);
-      setMessages(prev => [...prev, { role: "bot", text: `Switching to ${m.label} round! Here's your first question for this round based on your resume.` }]);
+      setMessages(prev => [...prev, { role: "bot", text: `Starting ${m.label} round! Here's your first question...` }]);
     }
   };
 
@@ -1419,15 +1429,28 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
     }
   };
 
-  const sendMessage = async () => {
-    const msg = input.trim();
+  const sendMessage = async (overrideMsg) => {
+    const msg = (overrideMsg || input).trim();
     if (!msg || typing) return;
     setInput("");
-    const newMessages = [...messages, { role:"user", text:msg }];
-    setMessages(newMessages);
+
+    // Build a context-injected message so the backend ALWAYS knows the mode.
+    // This is critical — the LLM forgets context between calls, so we remind it every time.
+    const modeCtx = interviewMode && MODES[interviewMode]
+      ? buildSystemPrompt(interviewMode, level) + "\n\nCandidate's response/request: "
+      : "";
+
+    const displayMsg = msg; // what shows in chat (clean, no system prefix)
+    const apiMsg     = modeCtx + msg; // what goes to API (with context prefix)
+
+    setMessages(prev => [...prev, { role:"user", text:displayMsg }]);
     setTyping(true);
     try {
-      const res = await fetch(`${API}/chat/`, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ message:msg, level, mode: interviewMode || "general" }) });
+      const res = await fetch(`${API}/chat/`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ message: apiMsg, level, mode: interviewMode || "general" }),
+      });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
       setTyping(false);
@@ -1828,7 +1851,34 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
           </div>
 
           {/* Input bar */}
-          <div style={{ padding:"16px 24px 20px", borderTop:`1px solid ${C.border}`, background:"rgba(8,8,16,0.5)", backdropFilter:"blur(10px)", flexShrink:0 }}>
+          <div style={{ padding:"12px 24px 16px", borderTop:`1px solid ${C.border}`, background:"rgba(8,8,16,0.5)", backdropFilter:"blur(10px)", flexShrink:0 }}>
+            {/* Quick topic chips — mode-specific */}
+            {interviewStarted && (
+              <div style={{ display:"flex", gap:6, marginBottom:10, flexWrap:"wrap" }}>
+                {(interviewMode === "technical" ? [
+                  "Ask me about system design", "Ask me about databases", "Ask me about APIs & REST",
+                  "Ask me about data structures", "Next question please",
+                ] : interviewMode === "practical" ? [
+                  "Give me a Python problem", "Give me a JavaScript problem", "Give me an array problem",
+                  "Give me a string problem", "Next coding question",
+                ] : interviewMode === "hr" ? [
+                  "Ask about my strengths", "Ask about teamwork", "Ask about career goals",
+                  "Ask about conflict resolution", "Next HR question",
+                ] : []).map(chip => (
+                  <button key={chip} onClick={() => { sendMessage(chip); }} disabled={typing} style={{
+                    padding:"4px 12px", borderRadius:20, fontSize:11, fontWeight:600,
+                    cursor: typing ? "not-allowed" : "pointer", fontFamily:"inherit",
+                    background: "rgba(139,92,246,0.08)",
+                    border:`1px solid ${C.border}`,
+                    color: C.muted2, transition:"all 0.2s",
+                  }}
+                    onMouseEnter={e=>{ if(!typing){ e.currentTarget.style.background="rgba(139,92,246,0.2)"; e.currentTarget.style.borderColor=C.border2; e.currentTarget.style.color=C.purpleBright; }}}
+                    onMouseLeave={e=>{ e.currentTarget.style.background="rgba(139,92,246,0.08)"; e.currentTarget.style.borderColor=C.border; e.currentTarget.style.color=C.muted2; }}>
+                    {chip}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* Code editor prompt banner */}
             {codingQuestionActive && (
               <div style={{
