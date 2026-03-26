@@ -1,5 +1,5 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from datetime import datetime
 from pathlib import Path
 
@@ -32,6 +32,8 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    resumes = relationship("Resume", back_populates="user")
+
     def to_dict(self):
         """Convert user to dictionary"""
         return {
@@ -41,6 +43,21 @@ class User(Base):
             "oauth": self.oauth,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+# ─── RESUME MODEL ─────────────────────────────────────────────────────────────
+class Resume(Base):
+    __tablename__ = "resumes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    filename = Column(String, nullable=False)
+    text = Column(Text, nullable=False)
+    skills = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="resumes")
 
 def get_db():
     """Dependency for getting database session"""

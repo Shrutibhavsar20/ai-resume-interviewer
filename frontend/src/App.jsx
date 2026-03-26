@@ -1291,6 +1291,8 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
   const [level, setLevel]       = useState("mid");
   const [uploading, setUploading]   = useState(false);
   const [uploadDone, setUploadDone] = useState(false);
+  const [savedResumes, setSavedResumes] = useState([]);
+  const [selectedResumeId, setSelectedResumeId] = useState(null);
   const [typing, setTyping]     = useState(false);
   const [toast, setToast]       = useState(null);
   const [showSummary, setShowSummary]       = useState(false);
@@ -1407,20 +1409,89 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [messages, typing]);
 
+  useEffect(() => {
+    if (!user || !user.id) return;
+    loadSavedResumes();
+  }, [user]);
+
   const sendCodeToAria = (formattedCode) => { setInput(formattedCode); };
+
+  const loadSavedResumes = async () => {
+    if (!user || !user.id) return;
+    try {
+      const res = await fetch(`${API}/user-resumes/?user_id=${user.id}`);
+      if (!res.ok) throw new Error(`Server ${res.status}`);
+      const data = await res.json();
+      const list = data.resumes || [];
+      setSavedResumes(list);
+      if (list.length > 0) {
+        const first = list[0];
+        setSelectedResumeId(first.id);
+        if (!uploadDone) {
+          await selectResume(first.id);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not load saved resumes:", err);
+    }
+  };
+
+  const selectResume = async (resumeId) => {
+    if (!user || !user.id) return;
+    try {
+      const form = new URLSearchParams();
+      form.append("user_id", String(user.id));
+      form.append("resume_id", String(resumeId));
+      const res = await fetch(`${API}/select-resume/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      });
+      if (!res.ok) throw new Error(`Server ${res.status}`);
+      const data = await res.json();
+      if (data.success) {
+        setUploadDone(true);
+        setSelectedResumeId(resumeId);
+        setInterviewStarted(false);
+        setMessages([]);
+        setToast({ msg: "✅ Resume loaded from saved list (and reset interview state)", type: "success" });
+      } else {
+        setToast({ msg: `❌ ${data.error || 'Could not select resume.'}`, type: "error" });
+      }
+    } catch (err) {
+      setToast({ msg: `❌ Could not select resume: ${err.message}`, type: "error" });
+    }
+  };
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.type !== "application/pdf") return setToast({ msg:"❌ Only PDF files accepted", type:"error" });
+    if (!/(application\/pdf|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/.test(file.type)) {
+      return setToast({ msg:"❌ Only PDF and DOCX files accepted", type:"error" });
+    }
     setUploading(true);
     try {
       const fd = new FormData();
       fd.append("file", file);
+      if (user && user.id) {
+        fd.append("user_id", String(user.id));
+      }
       const res = await fetch(`${API}/upload-resume/`, { method:"POST", body:fd });
       if (!res.ok) throw new Error(`Server ${res.status}`);
+      const data = await res.json();
+      if (data.success === false) throw new Error(data.error || "Upload failed");
+
       setUploadDone(true);
-      setToast({ msg:"✅ Resume uploaded! Now select an interview mode to start.", type:"success" });
+      setInterviewStarted(false);
+      setMessages([]);
+      setToast({ msg:"✅ Resume uploaded! Now select an interview mode (or continue) to start with this resume.", type:"success" });
+
+      // Refresh the resume list, then select the newly uploaded resume automatically
+      await loadSavedResumes();
+      if (data.resume_id) {
+        setSelectedResumeId(data.resume_id);
+        await selectResume(data.resume_id);
+      }
     } catch (err) {
       setToast({ msg:`❌ Upload failed: ${err.message}. Is your FastAPI running?`, type:"error" });
     } finally {
@@ -1573,6 +1644,25 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
             </div>
           </div>
 
+          {savedResumes.length > 0 && (
+            <div style={{ borderRadius:16, padding:"12px", background:C.bg3, border:`1px solid ${C.border}`, marginBottom:10 }}>
+              <div style={{ fontSize:10, fontWeight:700, marginBottom:8, color:C.muted2, textTransform:"uppercase", letterSpacing:"1px" }}>Saved Resumes</div>
+              <select value={selectedResumeId || ""} onChange={e => setSelectedResumeId(Number(e.target.value))}
+                style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, background:C.bg2, color:C.text, padding:"6px 8px", marginBottom:8, fontSize:12 }}>
+                {savedResumes.map(r => <option key={r.id} value={r.id}>{r.filename}</option>)}
+              </select>
+              <button onClick={() => selectResume(selectedResumeId)} style={{ width:"100%", padding:"7px", borderRadius:8, background:C.gradBtn, color:"white", border:"none", fontWeight:700, fontSize:12, cursor:"pointer", marginBottom:5 }}>
+                ✅ Use selected resume
+              </button>
+              <button onClick={() => fileRef.current?.click()} style={{ width:"100%", padding:"7px", borderRadius:8, background:"rgba(16,185,129,0.14)", color:C.green, border:`1px solid ${C.green}`, fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                📤 Upload a new resume
+              </button>
+              <div style={{ marginTop:8, fontSize:10, color:C.muted2 }}>
+                * Selecting a saved resume will reload its skills and reset the interview flow.
+              </div>
+            </div>
+          )}
+
           {/* Status panel — shows setup checklist summary or active session info */}
           {!interviewStarted ? (
             <div style={{ borderRadius:16, padding:"16px", background:C.bg3, border:`1px solid ${C.border}` }}>
@@ -1593,6 +1683,19 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
                   {!uploadDone && !interviewMode ? "📋 Follow the 3 steps in the chat →" :
                    !uploadDone ? "📄 Upload your resume to continue" :
                    "🎯 Select interview mode to start"}
+                </div>
+              )}
+
+              {savedResumes.length > 0 && !interviewStarted && (
+                <div style={{ marginTop:12, borderRadius:12, padding:"12px", background:C.bg3, border:`1px solid ${C.border}` }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:C.muted2, marginBottom:8, textTransform:"uppercase", letterSpacing:"1px" }}>Saved Resumes</div>
+                  <select value={selectedResumeId || ""} onChange={e => setSelectedResumeId(Number(e.target.value))}
+                    style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, background:C.bg2, color:C.text, padding:"6px 8px", marginBottom:10, fontSize:12 }}>
+                    {savedResumes.map(r => <option key={r.id} value={r.id}>{r.filename}</option>)}
+                  </select>
+                  <button onClick={() => selectResume(selectedResumeId)} style={{ width:"100%", padding:"8px", borderRadius:8, background:C.gradBtn, color:"white", border:"none", fontWeight:700, fontSize:12, cursor:"pointer" }}>
+                    ✅ Use selected resume
+                  </button>
                 </div>
               )}
             </div>
@@ -1726,21 +1829,19 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
                       </div>
                       {uploadDone && <span style={{ marginLeft:"auto", fontSize:11, color:C.green, fontWeight:700 }}>PDF analyzed!</span>}
                     </div>
-                    {!uploadDone && (
-                      <div style={{ paddingLeft:40 }}>
-                        <input ref={fileRef} type="file" accept=".pdf" onChange={handleFileChange} style={{ display:"none" }}/>
-                        <button onClick={() => !uploading && fileRef.current?.click()} disabled={uploading} style={{
-                          padding:"8px 20px", borderRadius:10,
-                          background: uploading ? C.bg3 : "rgba(6,182,212,0.12)",
-                          border:`1px solid ${uploading ? C.border : "rgba(6,182,212,0.4)"}`,
-                          color: uploading ? C.muted : C.cyan,
-                          fontSize:12, cursor: uploading ? "not-allowed" : "pointer",
-                          fontWeight:700, fontFamily:"inherit", transition:"all 0.2s",
-                        }}>
-                          {uploading ? "⏳ Uploading..." : "📄 Click to upload PDF"}
-                        </button>
-                      </div>
-                    )}
+                    <div style={{ paddingLeft:40 }}>
+                      <input ref={fileRef} type="file" accept=".pdf,.docx" onChange={handleFileChange} style={{ display:"none" }}/>
+                      <button onClick={() => !uploading && fileRef.current?.click()} disabled={uploading} style={{
+                        padding:"8px 20px", borderRadius:10,
+                        background: uploading ? C.bg3 : "rgba(6,182,212,0.12)",
+                        border:`1px solid ${uploading ? C.border : "rgba(6,182,212,0.4)"}`,
+                        color: uploading ? C.muted : C.cyan,
+                        fontSize:12, cursor: uploading ? "not-allowed" : "pointer",
+                        fontWeight:700, fontFamily:"inherit", transition:"all 0.2s",
+                      }}>
+                        {uploading ? "⏳ Uploading..." : "📄 Upload / Replace Resume"}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Step 3: Mode */}
@@ -1933,13 +2034,13 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
                 onMouseLeave={e=>{e.currentTarget.style.background=codingQuestionActive?"linear-gradient(135deg, rgba(139,92,246,0.3), rgba(6,182,212,0.2))":"rgba(139,92,246,0.1)"; e.currentTarget.style.color=codingQuestionActive?C.purpleBright:C.muted2;}}>
                 {"</>"}
               </button>
-              <button onClick={sendMessage} disabled={typing || !interviewStarted} style={{
+              <button onClick={sendMessage} disabled={typing} style={{
                 padding:"14px 26px", borderRadius:14,
-                background: (typing || !interviewStarted) ? C.bg3 : C.gradBtn,
-                border:`1px solid ${(typing || !interviewStarted) ? C.border : "transparent"}`,
+                background: typing ? C.bg3 : C.gradBtn,
+                border:`1px solid ${typing ? C.border : "transparent"}`,
                 color:"white", fontSize:14, fontWeight:700,
-                cursor: (typing || !interviewStarted) ? "not-allowed" : "pointer", fontFamily:"inherit",
-                boxShadow: (typing || !interviewStarted) ? "none" : `0 4px 20px rgba(139,92,246,0.36)`,
+                cursor: typing ? "not-allowed" : "pointer", fontFamily:"inherit",
+                boxShadow: typing ? "none" : `0 4px 20px rgba(139,92,246,0.36)`,
                 transition:"all 0.2s", minWidth:96,
               }}>
                 {typing ? "···" : "Send →"}

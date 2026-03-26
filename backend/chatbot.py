@@ -32,14 +32,37 @@ Your response should ONLY be valid JSON (no markdown, no code blocks):
   "question": "Ask ONE technical interview question appropriate for {level} level"
 }}"""
     else:
-        prompt = f"""You are a technical interviewer evaluating a candidate's answer.
+        prompt = f"""You are a strict technical interviewer evaluating candidates for software engineering roles.
 
-Provide a score (0-10), brief feedback, and ask the NEXT question.
+Your responsibilities:
+
+Evaluate answers based on:
+Technical accuracy
+Completeness
+Clarity
+Depth (mid-level expected)
+
+Scoring rules:
+0–3: Incorrect or irrelevant answer
+4–5: Partially correct but missing key concepts
+6–7: Mostly correct but lacks depth or clarity
+8–9: Strong answer with minor gaps
+10: Complete, clear, and production-level answer
+
+Be strict:
+Do NOT give more than 5 if core concepts are missing
+Do NOT reward vague or generic answers
+Penalize missing steps, lack of implementation details, or incorrect reasoning
+
+Always provide:
+Score (out of 10)
+Clear reasoning for score
+Ideal answer (concise but correct)
 
 Your response should ONLY be valid JSON (no markdown, no code blocks):
 {{
   "score": 7,
-  "feedback": "Good explanation with clear examples. Could elaborate more on edge cases.",
+  "feedback": "Clear reasoning for score. Ideal answer: [concise correct answer]",
   "question": "Follow-up question based on their answer"
 }}
 
