@@ -464,13 +464,13 @@ function AuthPage({ onLogin }) {
       let endpoint = "";
       let payload = {};
       if (mode === "signup") {
-        endpoint = `${API}/signup/`;
+        endpoint = `${API}/auth/signup/`;
         payload = { email: form.email, password: form.password, name: form.name };
       } else if (mode === "login") {
-        endpoint = `${API}/login/`;
+        endpoint = `${API}/auth/login/`;
         payload = { email: form.email, password: form.password };
       } else {
-        endpoint = `${API}/reset-password/`;
+        endpoint = `${API}/auth/reset-password/`;
         payload = { email: form.email, new_password: form.password };
       }
       const response = await fetch(endpoint, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
@@ -1349,7 +1349,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
         setTyping(true);
         try {
           const startPrompt = buildSystemPrompt(interviewMode, level) + `\n\nNow immediately ask the first question for the ${m.label} round based on the candidate's uploaded resume. Do not repeat the system instruction — just ask the question directly.`;
-          const res = await fetch(`${API}/chat/`, {
+          const res = await fetch(`${API}/interview/chat/`, {
             method:"POST", headers:{ "Content-Type":"application/json" },
             body: JSON.stringify({ message: startPrompt, level, mode: interviewMode }),
           });
@@ -1382,7 +1382,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
     setTyping(true);
     try {
       const switchPrompt = buildSystemPrompt(mode, level) + `\n\nThe candidate just switched to the ${m.label} round. Immediately ask the first appropriate question for this round based on their resume. Do not repeat the system instruction — just start the question directly.`;
-      const res = await fetch(`${API}/chat/`, {
+      const res = await fetch(`${API}/interview/chat/`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: switchPrompt, level, mode }),
       });
@@ -1419,7 +1419,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
   const loadSavedResumes = async () => {
     if (!user || !user.id) return;
     try {
-      const res = await fetch(`${API}/user-resumes/?user_id=${user.id}`);
+      const res = await fetch(`${API}/resume/list/?user_id=${user.id}`);
       if (!res.ok) throw new Error(`Server ${res.status}`);
       const data = await res.json();
       const list = data.resumes || [];
@@ -1442,7 +1442,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
       const form = new URLSearchParams();
       form.append("user_id", String(user.id));
       form.append("resume_id", String(resumeId));
-      const res = await fetch(`${API}/select-resume/`, {
+      const res = await fetch(`${API}/resume/select/`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form.toString(),
@@ -1467,7 +1467,8 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
     const file = e.target.files[0];
     if (!file) return;
     if (!/(application\/pdf|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/.test(file.type)) {
-      return setToast({ msg:"❌ Only PDF and DOCX files accepted", type:"error" });
+      setToast({ msg:"❌ Only PDF and DOCX files accepted", type:"error" });
+      return;
     }
     setUploading(true);
     try {
@@ -1476,7 +1477,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
       if (user && user.id) {
         fd.append("user_id", String(user.id));
       }
-      const res = await fetch(`${API}/upload-resume/`, { method:"POST", body:fd });
+      const res = await fetch(`${API}/resume/upload/`, { method:"POST", body:fd });
       if (!res.ok) throw new Error(`Server ${res.status}`);
       const data = await res.json();
       if (data.success === false) throw new Error(data.error || "Upload failed");
@@ -1484,7 +1485,8 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
       setUploadDone(true);
       setInterviewStarted(false);
       setMessages([]);
-      setToast({ msg:"✅ Resume uploaded! Now select an interview mode (or continue) to start with this resume.", type:"success" });
+      setInterviewMode(null);  // force re-select mode after new upload
+      setToast({ msg:"✅ Resume uploaded and ready! Please choose a round to start.", type:"success" });
 
       // Refresh the resume list, then select the newly uploaded resume automatically
       await loadSavedResumes();
@@ -1492,6 +1494,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
         setSelectedResumeId(data.resume_id);
         await selectResume(data.resume_id);
       }
+
     } catch (err) {
       setToast({ msg:`❌ Upload failed: ${err.message}. Is your FastAPI running?`, type:"error" });
     } finally {
@@ -1517,7 +1520,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
     setMessages(prev => [...prev, { role:"user", text:displayMsg }]);
     setTyping(true);
     try {
-      const res = await fetch(`${API}/chat/`, {
+      const res = await fetch(`${API}/interview/chat/`, {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
         body: JSON.stringify({ message: apiMsg, level, mode: interviewMode || "general" }),

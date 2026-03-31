@@ -37,6 +37,7 @@ Candidate Answer:
         json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
         headers={"Content-Type": "application/json"}
     )
+    print("Evaluation API response:", response.text)  # Debugging log
 
     response.raise_for_status()
     response_data = response.json()

@@ -14,7 +14,14 @@ def chat_with_interviewer(user_message: str, level: str = "medium"):
     """
     level: junior | mid | senior
     """
-    if not SESSION["skills"]:
+    # If no explicit skills were extracted, fall back to resume text tokens.
+    if not SESSION.get("skills") and SESSION.get("resume_text"):
+        import re
+        tokens = re.findall(r"\b[a-zA-Z0-9_+-]{3,}\b", SESSION["resume_text"].lower())
+        filtered = [t for t in tokens if t not in {"and","with","for","the","your","this","that","from","in","on","at","an","a","to","of","is","are","as","by"}]
+        SESSION["skills"] = list(dict.fromkeys(filtered))[:12]
+
+    if not SESSION.get("skills"):
         return {
             "error": "Please upload resume first",
             "question": "Please go back and upload your resume to start the interview."
