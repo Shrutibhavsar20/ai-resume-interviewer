@@ -491,6 +491,7 @@ function AuthPage({ onLogin }) {
   const [quoteIdx] = useState(() => Math.floor(Math.random() * QUOTES.length));
 
   const handleSubmit = async () => {
+    console.log("handleSubmit called with mode:", mode, "form:", form);
     if (!form.email)                          return setToast({ msg:"⚠️ Please enter your email",    type:"warn" });
     if (mode !== "forgot" && !form.password)  return setToast({ msg:"⚠️ Please enter your password", type:"warn" });
     setLoading(true);
@@ -503,12 +504,17 @@ function AuthPage({ onLogin }) {
       } else if (mode === "login") {
         endpoint = `${API}/auth/login/`;
         payload = { email: form.email, password: form.password };
+      } else if (mode === "forgot") {
+        endpoint = `${API}/auth/forgot-password/`;
+        payload = { email: form.email };
       } else {
         endpoint = `${API}/auth/reset-password/`;
-        payload = { email: form.email, new_password: form.password };
+        payload = { token: form.token, new_password: form.password };
       }
+      console.log("Making API call to:", endpoint, "with payload:", payload);
       const response = await fetch(endpoint, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(payload) });
       const data = await response.json();
+      console.log("API response:", data);
       setLoading(false);
       if (data.success) {
         if (mode === "signup") {
@@ -518,6 +524,10 @@ function AuthPage({ onLogin }) {
         } else if (mode === "login") {
           setToast({ msg:`✅ Signed in! Welcome ${data.user.name}`, type:"success" });
           setTimeout(() => onLogin(data.user), 1500);
+        } else if (mode === "forgot") {
+          setToast({ msg:`✅ ${data.message}`, type:"success" });
+          setTimeout(() => setMode("login"), 3000);
+          setForm({ name:"", email:"", password:"" });
         } else {
           setToast({ msg:`✅ Password reset! Please sign in`, type:"success" });
           setTimeout(() => setMode("login"), 1500);
@@ -658,6 +668,117 @@ function AuthPage({ onLogin }) {
               </button>
             ))}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── RESET PASSWORD PAGE ──────────────────────────────────────────────────────
+function ResetPasswordPage({ onLogin }) {
+  const [form, setForm] = useState({ password: "", confirmPassword: "" });
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("token");
+
+  const handleSubmit = async () => {
+    if (!form.password) return setToast({ msg: "⚠️ Please enter a new password", type: "warn" });
+    if (form.password !== form.confirmPassword) return setToast({ msg: "⚠️ Passwords do not match", type: "warn" });
+    if (form.password.length < 6) return setToast({ msg: "⚠️ Password must be at least 6 characters", type: "warn" });
+
+    setLoading(true);
+    try {
+      const response = await fetch(`${API}/auth/reset-password/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, new_password: form.password }),
+      });
+      const data = await response.json();
+      setLoading(false);
+      if (data.success) {
+        setToast({ msg: "✅ Password reset successfully! Please sign in.", type: "success" });
+        setTimeout(() => {
+          window.location.href = "/"; // Redirect to login
+        }, 2000);
+      } else {
+        setToast({ msg: `❌ ${data.error}`, type: "error" });
+      }
+    } catch (err) {
+      setLoading(false);
+      setToast({ msg: `❌ Network error: ${err.message}`, type: "error" });
+    }
+  };
+
+  if (!token) {
+    return (
+      <div style={{ width: "100vw", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg }}>
+        <div style={{ textAlign: "center" }}>
+          <h2 style={{ color: C.danger }}>Invalid Reset Link</h2>
+          <p style={{ color: C.muted2 }}>This password reset link is invalid or expired.</p>
+          <button onClick={() => window.location.href = "/"} style={LB}>Go to Login</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ width: "100vw", minHeight: "100vh", display: "flex", fontFamily: "'Outfit',sans-serif", background: C.bg }}>
+      <style>{GLOBAL_CSS}</style>
+      {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+
+      <div style={{ width: 500, margin: "auto", padding: "56px 52px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <div style={{ marginBottom: 36 }}>
+          <h2 style={{ color: C.text, fontSize: 28, fontWeight: 800, margin: "0 0 8px", letterSpacing: "-0.5px" }}>
+            Reset Your Password 🔑
+          </h2>
+          <p style={{ color: C.muted2, margin: 0, fontSize: 14 }}>
+            Enter your new password below.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={{ color: C.muted2, fontSize: 11, letterSpacing: "1px", textTransform: "uppercase", fontWeight: 600 }}>New Password</label>
+            <input
+              value={form.password}
+              onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+              placeholder="••••••••"
+              type="password"
+              style={IS}
+              onFocus={e => e.target.style.borderColor = C.purple}
+              onBlur={e => e.target.style.borderColor = C.border}
+            />
+          </div>
+          <div>
+            <label style={{ color: C.muted2, fontSize: 11, letterSpacing: "1px", textTransform: "uppercase", fontWeight: 600 }}>Confirm Password</label>
+            <input
+              value={form.confirmPassword}
+              onChange={e => setForm(f => ({ ...f, confirmPassword: e.target.value }))}
+              placeholder="••••••••"
+              type="password"
+              style={IS}
+              onKeyDown={e => e.key === "Enter" && handleSubmit()}
+              onFocus={e => e.target.style.borderColor = C.purple}
+              onBlur={e => e.target.style.borderColor = C.border}
+            />
+          </div>
+        </div>
+
+        <button onClick={handleSubmit} disabled={loading} style={{
+          marginTop: 24, padding: "14px", borderRadius: 12,
+          background: loading ? C.bg3 : C.gradBtn,
+          border: `1px solid ${loading ? C.border : "transparent"}`,
+          color: "white", fontSize: 15, fontWeight: 700,
+          cursor: loading ? "not-allowed" : "pointer", width: "100%",
+          boxShadow: loading ? "none" : `0 8px 28px rgba(139,92,246,0.3)`,
+          transition: "all 0.2s", fontFamily: "inherit",
+        }}>
+          {loading ? "⏳ Please wait..." : "Reset Password →"}
+        </button>
+
+        <div style={{ marginTop: 20, textAlign: "center" }}>
+          <button onClick={() => window.location.href = "/"} style={LB}>Back to Login</button>
         </div>
       </div>
     </div>
@@ -2155,6 +2276,12 @@ export default function App() {
     // Handle OAuth callback from Google
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
+    const token = params.get("token");
+
+    if (token) {
+      setPage("reset-password");
+      return;
+    }
 
     if (code) {
       // Extract basic user info from Google token
@@ -2188,10 +2315,14 @@ export default function App() {
     }
   }, []);
 
-  return page==="auth"      ? <AuthPage onLogin={u=>{
+  return page==="auth"         ? <AuthPage onLogin={u=>{
                                               try{ sessionStorage.setItem("session_user", JSON.stringify(u)); }catch(e){}
                                               setUser(u); setPage("dashboard");
                                             }} /> :
-         page==="dashboard" ? <Dashboard user={user} onStartInterview={()=>setPage("interview")} onLogout={()=>{ try{ sessionStorage.removeItem("session_user"); }catch(e){} setUser(null); setPage("auth"); }} /> :
-                              <InterviewPage user={user} onBack={()=>setPage("dashboard")} onSessionComplete={()=>setPage("dashboard")} />;
+         page==="reset-password" ? <ResetPasswordPage onLogin={u=>{
+                                              try{ sessionStorage.setItem("session_user", JSON.stringify(u)); }catch(e){}
+                                              setUser(u); setPage("dashboard");
+                                            }} /> :
+         page==="dashboard"     ? <Dashboard user={user} onStartInterview={()=>setPage("interview")} onLogout={()=>{ try{ sessionStorage.removeItem("session_user"); }catch(e){} setUser(null); setPage("auth"); }} /> :
+                                  <InterviewPage user={user} onBack={()=>setPage("dashboard")} onSessionComplete={()=>setPage("dashboard")} />;
 }

@@ -27,7 +27,10 @@ class SignupRequest(BaseModel):
     password: str
     name: str = ""
 
-class ResetPasswordRequest(BaseModel):
+class ForgotPasswordRequest(BaseModel):
     email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
     new_password: str
 

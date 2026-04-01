@@ -1,8 +1,8 @@
 """Authentication API endpoints"""
 
 from fastapi import APIRouter
-from backend.models import LoginRequest, SignupRequest, ResetPasswordRequest
-from backend.auth import login_user, register_user, reset_password, oauth_login
+from backend.models import LoginRequest, SignupRequest, ForgotPasswordRequest, ResetPasswordRequest
+from backend.auth import login_user, register_user, forgot_password, reset_password_with_token, oauth_login
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -27,11 +27,20 @@ async def login(request: LoginRequest):
 
 @router.post("/reset-password/")
 async def reset_pwd(request: ResetPasswordRequest):
-    """Reset user password"""
-    result = reset_password(request.email, request.new_password)
+    """Reset user password using token"""
+    result = reset_password_with_token(request.token, request.new_password)
     if result.get("success"):
         return {"success": True, "message": "Password reset successfully"}
     return {"success": False, "error": result.get("error", "Password reset failed")}
+
+
+@router.post("/forgot-password/")
+async def forgot_pwd(request: ForgotPasswordRequest):
+    """Send password reset email"""
+    result = forgot_password(request.email)
+    if result.get("success"):
+        return {"success": True, "message": "Password reset email sent"}
+    return {"success": False, "error": result.get("error", "Failed to send reset email")}
 
 
 @router.post("/oauth-callback/")

@@ -1,6 +1,11 @@
 import hashlib
+import secrets
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from backend.database import User, SessionLocal
+from backend.database import User, PasswordReset, SessionLocal
 
 def hash_password(password: str) -> str:
     """Hash password for storage"""
@@ -96,6 +101,135 @@ def reset_password(email: str, new_password: str, db: Session = None) -> dict:
             return {"success": False, "error": "Password must be at least 6 characters"}
         
         user.password = hash_password(new_password)
+        db.commit()
+        
+        return {"success": True, "message": "Password reset successfully"}
+    
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"Reset error: {str(e)}"}
+    
+    finally:
+        db.close()
+
+def forgot_password(email: str, db: Session = None) -> dict:
+    """Send password reset email"""
+    if db is None:
+        db = SessionLocal()
+    
+    try:
+        user = get_user_by_email(email, db)
+        
+        # Always generate a token and send email, even if user doesn't exist
+        # This prevents email enumeration attacks
+        
+        # Generate reset token
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(hours=1)
+        
+        # Save reset token only if user exists
+        if user:
+            reset_entry = PasswordReset(
+                email=email,
+                token=token,
+                expires_at=expires_at
+            )
+            db.add(reset_entry)
+            db.commit()
+            
+            # Send email
+            send_reset_email(email, token)
+        else:
+            # For non-existent users, just log and return success
+            print(f"Password reset requested for non-existent email: {email}")
+        
+        return {"success": True, "message": "If an account with this email exists, a password reset link has been sent."}
+    
+    except Exception as e:
+        db.rollback()
+        print(f"Forgot password error: {str(e)}")
+        # Still return success to prevent information leakage
+        return {"success": True, "message": "If an account with this email exists, a password reset link has been sent."}
+    
+    finally:
+        db.close()
+
+def send_reset_email(email: str, token: str):
+    """Send password reset email"""
+    import os
+    smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    
+    reset_link = f"http://localhost:5173/reset-password?token={token}"
+    
+    if not smtp_user or not smtp_password:
+        print(f"SMTP not configured. Reset link for {email}: {reset_link}")
+        return
+    
+    # ... rest of the email sending code
+    
+    msg = MIMEMultipart()
+    msg['From'] = smtp_user
+    msg['To'] = email
+    msg['Subject'] = "Password Reset Request"
+    
+    body = f"""
+    Hi,
+    
+    You requested a password reset for your account.
+    
+    Click the link below to reset your password:
+    {reset_link}
+    
+    This link will expire in 1 hour.
+    
+    If you didn't request this, please ignore this email.
+    
+    Best,
+    Interview AI Team
+    """
+    
+    msg.attach(MIMEText(body, 'plain'))
+    
+    try:
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        text = msg.as_string()
+        server.sendmail(smtp_user, email, text)
+        server.quit()
+        print(f"Password reset email sent successfully to {email}")
+    except Exception as e:
+        print(f"Failed to send email to {email}: {str(e)}")
+        # Fallback: print the link for development
+        print(f"Reset link: {reset_link}")
+
+def reset_password_with_token(token: str, new_password: str, db: Session = None) -> dict:
+    """Reset password using token"""
+    if db is None:
+        db = SessionLocal()
+    
+    try:
+        reset_entry = db.query(PasswordReset).filter(
+            PasswordReset.token == token,
+            PasswordReset.used == False,
+            PasswordReset.expires_at > datetime.utcnow()
+        ).first()
+        
+        if not reset_entry:
+            return {"success": False, "error": "Invalid or expired token"}
+        
+        user = get_user_by_email(reset_entry.email, db)
+        if not user:
+            return {"success": False, "error": "User not found"}
+        
+        if len(new_password) < 6:
+            return {"success": False, "error": "Password must be at least 6 characters"}
+        
+        user.password = hash_password(new_password)
+        reset_entry.used = True
         db.commit()
         
         return {"success": True, "message": "Password reset successfully"}

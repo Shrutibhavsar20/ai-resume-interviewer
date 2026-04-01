@@ -66,6 +66,18 @@ class Resume(Base):
 
     user = relationship("User", back_populates="resumes")
 
+
+# ─── PASSWORD RESET MODEL ─────────────────────────────────────────────────────
+class PasswordReset(Base):
+    __tablename__ = "password_resets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, nullable=False, index=True)
+    token = Column(String, unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 def get_db():
     """Dependency for getting database session"""
     db = SessionLocal()
