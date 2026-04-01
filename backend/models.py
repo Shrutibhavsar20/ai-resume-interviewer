@@ -1,9 +1,11 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 class QuestionRequest(BaseModel):
     skills: List[str]
     level: str = "medium"
+    interview_type: str = "technical"  # technical, practical, hr
+    mode: Optional[str] = None
 
 
 class AnswerRequest(BaseModel):
@@ -13,6 +15,8 @@ class AnswerRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     level: str = "medium"
+    interview_type: str = "technical"  # technical, practical, hr
+    mode: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: str

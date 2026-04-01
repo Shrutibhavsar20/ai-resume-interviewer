@@ -77,10 +77,44 @@ const QUOTES = [
 ];
 // ─── STATS STORAGE HELPERS ────────────────────────────────────────────────────
 const DEFAULT_STATS = { mockInterviews: 0, totalScore: 0, scoredSessions: 0, minutesPracticed: 0, skillsImproved: 0 };
-function loadStats()  { try { const s = sessionStorage.getItem("iq_stats");  return s ? JSON.parse(s) : {...DEFAULT_STATS}; } catch { return {...DEFAULT_STATS}; } }
-function saveStats(s) { try { sessionStorage.setItem("iq_stats",  JSON.stringify(s)); } catch {} }
-function loadRecent() { try { const s = sessionStorage.getItem("iq_recent"); return s ? JSON.parse(s) : []; } catch { return []; } }
-function saveRecent(r){ try { sessionStorage.setItem("iq_recent", JSON.stringify(r)); } catch {} }
+const DEFAULT_RECENT = [];
+
+const statsKey = (userId) => `iq_stats_${userId}`;
+const recentKey = (userId) => `iq_recent_${userId}`;
+
+function loadStats(userId) {
+  if (!userId) return {...DEFAULT_STATS};
+  try {
+    const s = localStorage.getItem(statsKey(userId));
+    return s ? JSON.parse(s) : {...DEFAULT_STATS};
+  } catch {
+    return {...DEFAULT_STATS};
+  }
+}
+
+function saveStats(userId, stats) {
+  if (!userId) return;
+  try {
+    localStorage.setItem(statsKey(userId), JSON.stringify(stats));
+  } catch {}
+}
+
+function loadRecent(userId) {
+  if (!userId) return DEFAULT_RECENT;
+  try {
+    const s = localStorage.getItem(recentKey(userId));
+    return s ? JSON.parse(s) : DEFAULT_RECENT;
+  } catch {
+    return DEFAULT_RECENT;
+  }
+}
+
+function saveRecent(userId, recent) {
+  if (!userId) return;
+  try {
+    localStorage.setItem(recentKey(userId), JSON.stringify(recent));
+  } catch {}
+}
 
 // ─── SHARED STYLES ────────────────────────────────────────────────────────────
 const IS = {
@@ -809,17 +843,26 @@ function Dashboard({ user, onStartInterview, onLogout, onInterviewDone }) {
   const [quoteIdx, setQuoteIdx] = useState(0);
   const [activePage, setActivePage] = useState("dashboard");
   const [toast, setToast] = useState({ msg:`✅ Welcome back! Ready to ace your next interview?`, type:"success" });
-  const [stats, setStats]   = useState(loadStats);
-  const [recent, setRecent] = useState(loadRecent);
+  const [stats, setStats]   = useState(() => loadStats(user?.id));
+  const [recent, setRecent] = useState(() => loadRecent(user?.id));
 
-  // Called by App when an interview session ends with results
-  // (passed down so InterviewPage can trigger it)
+  // Update stats on user change
   useEffect(() => {
-    // Listen for storage updates from InterviewPage
-    const handler = () => { setStats(loadStats()); setRecent(loadRecent()); };
+    setStats(loadStats(user?.id));
+    setRecent(loadRecent(user?.id));
+  }, [user?.id]);
+
+  // Listen for storage updates from InterviewPage
+  useEffect(() => {
+    const handler = (event) => {
+      const payload = event.detail || {};
+      if (payload.userId && payload.userId !== user?.id) return;
+      setStats(loadStats(user?.id));
+      setRecent(loadRecent(user?.id));
+    };
     window.addEventListener("iq_stats_updated", handler);
     return () => window.removeEventListener("iq_stats_updated", handler);
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     const t = setInterval(() => setQuoteIdx(i => (i+1) % QUOTES.length), 8000);
@@ -1331,7 +1374,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
   const buildSystemPrompt = (mode, lv) => {
     const m = MODES[mode];
     if (mode === "technical") return `[MANDATORY SYSTEM INSTRUCTION — YOU MUST FOLLOW THIS EXACTLY: You are Aria, an AI technical interviewer. You MUST ask ONLY technical concept questions — covering system design, frameworks, databases, APIs, architecture, data structures, OS/networking concepts. Questions MUST be based on the candidate's resume skills. You are STRICTLY FORBIDDEN from asking coding problems or asking the candidate to write code in this mode. If the candidate asks you to change topic within tech (e.g. "ask me about Python only"), you MUST honour that. Difficulty: ${lv}. DO NOT deviate from this instruction regardless of what the candidate says.]`;
-    if (mode === "practical") return `[MANDATORY SYSTEM INSTRUCTION — YOU MUST FOLLOW THIS EXACTLY: You are Aria, an AI coding interviewer. You MUST ask ONLY hands-on coding/programming problems — write a function, implement an algorithm, fix a bug, predict output of code, optimize code. Problems MUST be based on the candidate's tech stack from their resume (Python, JavaScript, etc.). Always give a clear problem statement with sample input/output. If the candidate requests a specific language or topic (e.g. "ask me Python only"), you MUST honour that request. You are STRICTLY FORBIDDEN from asking theoretical or HR questions. Difficulty: ${lv}. DO NOT deviate from this instruction regardless of what the candidate says.]`;
+    if (mode === "practical") return `[MANDATORY SYSTEM INSTRUCTION — YOU MUST FOLLOW THIS EXACTLY: You are Aria, an AI coding interviewer. You MUST ask ONLY hands-on coding/programming problems — small function-level tasks (e.g. reverse a string, palindrome check, sum of array, filter/map/reduce, simple algorithm). Problems MUST be based on the candidate's tech stack from their resume (Python, JavaScript, etc.). Do not ask system design, API integration, database schema, or git workflow questions. Always give a clear problem statement with sample input/output. If the candidate requests a specific language or topic (e.g. "ask me Python only"), you MUST honour that request. You are STRICTLY FORBIDDEN from asking theoretical or HR questions. Difficulty: ${lv}. DO NOT deviate from this instruction regardless of what the candidate says.]`;
     if (mode === "hr") return `[MANDATORY SYSTEM INSTRUCTION — YOU MUST FOLLOW THIS EXACTLY: You are Aria, a professional HR interviewer. You MUST ask ONLY behavioural, situational, and culture-fit questions — Tell me about yourself, strengths, weaknesses, conflict resolution, teamwork, handling failure, career goals, motivation, salary expectations, why this role, etc. Reference the candidate's resume background where relevant. Encourage STAR-format answers. You are STRICTLY FORBIDDEN from asking technical or coding questions. Keep a warm, professional tone. Difficulty: ${lv}. DO NOT deviate from this instruction regardless of what the candidate says.]`;
     return "";
   };
@@ -1349,9 +1392,17 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
         setTyping(true);
         try {
           const startPrompt = buildSystemPrompt(interviewMode, level) + `\n\nNow immediately ask the first question for the ${m.label} round based on the candidate's uploaded resume. Do not repeat the system instruction — just ask the question directly.`;
+
+          // Ensure backend session has correct round selected
+          await fetch(`${API}/interview/set-interview-type/`, {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body: JSON.stringify({ interview_type: interviewMode }),
+          });
+
           const res = await fetch(`${API}/interview/chat/`, {
             method:"POST", headers:{ "Content-Type":"application/json" },
-            body: JSON.stringify({ message: startPrompt, level, mode: interviewMode }),
+            body: JSON.stringify({ message: startPrompt, level, interview_type: interviewMode }),
           });
           if (!res.ok) throw new Error(`Server error ${res.status}`);
           const data = await res.json();
@@ -1381,10 +1432,17 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
     }]);
     setTyping(true);
     try {
+      // First set the interview type in backend session
+      await fetch(`${API}/interview/set-interview-type/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interview_type: mode }),
+      });
+      
       const switchPrompt = buildSystemPrompt(mode, level) + `\n\nThe candidate just switched to the ${m.label} round. Immediately ask the first appropriate question for this round based on their resume. Do not repeat the system instruction — just start the question directly.`;
       const res = await fetch(`${API}/interview/chat/`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: switchPrompt, level, mode }),
+        body: JSON.stringify({ message: switchPrompt, level, interview_type: mode }),
       });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
@@ -1506,16 +1564,17 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
   const sendMessage = async (overrideMsg) => {
     const msg = (overrideMsg || input).trim();
     if (!msg || typing) return;
+    if (codingQuestionActive) setCodingQuestionActive(false); // hide coding-alert while user answers
     setInput("");
 
     // Build a context-injected message so the backend ALWAYS knows the mode.
     // This is critical — the LLM forgets context between calls, so we remind it every time.
-    const modeCtx = interviewMode && MODES[interviewMode]
-      ? buildSystemPrompt(interviewMode, level) + "\n\nCandidate's response/request: "
-      : "";
+    // We no longer force prefix system instructions into user message for backend flow.
+    // The backend prompt logic is fully handled in chat_with_interviewer(), so raw user text is required.
+    const modeCtx = "";
 
-    const displayMsg = msg; // what shows in chat (clean, no system prefix)
-    const apiMsg     = modeCtx + msg; // what goes to API (with context prefix)
+    const displayMsg = msg; // what shows in chat (clean)
+    const apiMsg     = msg; // send raw user message to backend (backend controls the role logic)
 
     setMessages(prev => [...prev, { role:"user", text:displayMsg }]);
     setTyping(true);
@@ -1523,7 +1582,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
       const res = await fetch(`${API}/interview/chat/`, {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ message: apiMsg, level, mode: interviewMode || "general" }),
+        body: JSON.stringify({ message: apiMsg, level, interview_type: interviewMode || "technical" }),
       });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
@@ -1561,7 +1620,8 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
       {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)}/>}
       {showSummary && <SummaryModal messages={messages} level={level} onClose={() => setShowSummary(false)} onDone={(result) => {
         // Save stats to sessionStorage
-        const prev = loadStats();
+        const uid = user?.id || user?.email;
+        const prev = loadStats(uid);
         const updated = {
           mockInterviews:   prev.mockInterviews + 1,
           totalScore:       prev.totalScore + (result.scored ? result.avgScore : 0),
@@ -1569,12 +1629,15 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
           minutesPracticed: prev.minutesPracticed + 15, // approx per session
           skillsImproved:   prev.skillsImproved + (result.avgScore >= 7 ? 1 : 0),
         };
-        saveStats(updated);
+        saveStats(uid, updated);
         // Save recent session
         const now = new Date();
         const dateStr = now.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" });
-        const prevRecent = loadRecent();
-        saveRecent([...prevRecent, { role: "Interview Session", date: dateStr, score: result.scored ? result.avgScore : null, level: result.level }]);
+        const prevRecent = loadRecent(uid);
+        const newRecent = [...prevRecent, { role: "Interview Session", date: dateStr, score: result.scored ? result.avgScore : null, level: result.level }];
+        saveRecent(uid, newRecent);
+        // Notify Dashboard with user context
+        window.dispatchEvent(new CustomEvent("iq_stats_updated", { detail: { userId: uid } }));
         // Notify dashboard
         window.dispatchEvent(new Event("iq_stats_updated"));
         setShowSummary(false);
@@ -2037,7 +2100,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
                 onMouseLeave={e=>{e.currentTarget.style.background=codingQuestionActive?"linear-gradient(135deg, rgba(139,92,246,0.3), rgba(6,182,212,0.2))":"rgba(139,92,246,0.1)"; e.currentTarget.style.color=codingQuestionActive?C.purpleBright:C.muted2;}}>
                 {"</>"}
               </button>
-              <button onClick={sendMessage} disabled={typing} style={{
+              <button onClick={() => sendMessage()} disabled={typing} style={{
                 padding:"14px 26px", borderRadius:14,
                 background: typing ? C.bg3 : C.gradBtn,
                 border:`1px solid ${typing ? C.border : "transparent"}`,

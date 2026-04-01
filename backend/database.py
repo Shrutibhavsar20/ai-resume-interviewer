@@ -1,3 +1,4 @@
+import os
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from datetime import datetime
@@ -5,7 +6,13 @@ from pathlib import Path
 
 # Database path
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATABASE_URL = f"sqlite:///{BASE_DIR / 'data' / 'interview_ai.db'}"
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    f"sqlite:///{BASE_DIR / 'data' / 'interview_ai.db'}"
+)
+
+# For MySQL, set in your environment:
+# DATABASE_URL=mysql+pymysql://<user>:<password>@<host>:<port>/<database>
 
 # Create engine
 engine = create_engine(

@@ -7,13 +7,14 @@ load_dotenv()
 OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")
 
-def generate_questions(skills: list, level: str = "intermediate"):
+def generate_questions(skills: list, level: str = "intermediate", interview_type: str = "technical"):
     """
     Generate interview questions based on skills and difficulty level.
     
     Args:
         skills: List of skills extracted from resume
         level: Difficulty level (beginner, intermediate, advanced)
+        interview_type: Type of interview (technical, practical, hr)
     
     Returns:
         List of generated questions
@@ -23,11 +24,25 @@ def generate_questions(skills: list, level: str = "intermediate"):
     
     skills_text = ", ".join(skills)
     
-    prompt = f"""You are an expert technical interviewer. Generate 5 {level}-level interview questions based on the following skills: {skills_text}
+    # Customize prompt based on interview type
+    if interview_type == "technical":
+        focus = "technical concepts, algorithms, data structures, and system design"
+        question_types = "conceptual and scenario-based technical questions"
+    elif interview_type == "practical":
+        focus = "coding problems, implementation details, debugging, and best practices (e.g., reverse string, palindrome, array manipulation, algorithmic tasks)"
+        question_types = "practical coding and implementation questions (do not include git workflows or HR topics)"
+    elif interview_type == "hr":
+        focus = "behavioral questions, leadership, teamwork, and company culture"
+        question_types = "behavioral and HR-related questions"
+    else:
+        focus = "technical concepts and skills"
+        question_types = "technical interview questions"
+    
+    prompt = f"""You are an expert {interview_type} interviewer. Generate 5 {level}-level interview questions based on the following skills: {skills_text}
 
+Focus on: {focus}
 Requirements:
-- Questions should be practical and test real understanding
-- Mix of conceptual and scenario-based questions
+- Questions should be {question_types}
 - Appropriate for {level} level candidates
 - Return ONLY the questions, numbered 1-5
 - Each question on a new line

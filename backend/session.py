@@ -3,5 +3,6 @@ SESSION = {
     "resume_text": None,
     "skills": [],
     "current_question": None,
-    "history": []
+    "history": [],
+    "interview_type": "technical"  # technical, practical, hr
 }

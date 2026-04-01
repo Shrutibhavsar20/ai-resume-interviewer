@@ -1,8 +1,7 @@
 """Resume Management API endpoints"""
 
-import shutil
 from fastapi import APIRouter, UploadFile, File, Form
-from backend.resume_parser import extract_text_from_file, clean_text
+from backend.resume_parser import extract_text_from_bytes, clean_text
 from backend.skill_extractor import extract_skills
 from backend.session import SESSION
 from backend.database import SessionLocal, Resume
@@ -13,12 +12,8 @@ router = APIRouter(prefix="/resume", tags=["Resume Management"])
 @router.post("/upload/")
 async def upload_resume(file: UploadFile = File(...), user_id: int = Form(None)):
     """Upload and process a resume file (PDF or DOCX)"""
-    file_path = f"temp_{file.filename}"
-
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    raw_text = extract_text_from_file(file_path)
+    file_bytes = await file.read()
+    raw_text = extract_text_from_bytes(file_bytes, file.filename)
     clean_resume = clean_text(raw_text)
 
     with open("data/skills.txt") as f:
@@ -29,7 +24,7 @@ async def upload_resume(file: UploadFile = File(...), user_id: int = Form(None))
     # Persist to DB if user logged in
     resume_id = None
     if user_id:
-        db = SessionLocal()
+        db = SessionLocal() 
         try:
             new_resume = Resume(
                 user_id=user_id,
