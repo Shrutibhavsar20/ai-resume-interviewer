@@ -7,3 +7,12 @@ machine learning
 data analysis
 git
 docker
+react
+react native
+react.js
+javascript
+typescript
+css
+tailwind css
+redux
+expo

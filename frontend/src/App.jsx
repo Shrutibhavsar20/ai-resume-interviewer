@@ -869,90 +869,144 @@ function PracticePage({ onStartInterview }) {
 
 // ─── HISTORY PAGE ─────────────────────────────────────────────────────────────
 function HistoryPage() {
-  const allHistory = [
-    { role:"React Developer",      date:"Feb 5, 2026",  score:9.1, level:"Senior", duration:"18 min", questions:6, badge:"🏆" },
-    { role:"Frontend Developer",   date:"Feb 14, 2026", score:8.7, level:"Senior", duration:"22 min", questions:7, badge:"⭐" },
-    { role:"Full Stack Engineer",  date:"Feb 10, 2026", score:7.9, level:"Mid",    duration:"16 min", questions:5, badge:"📈" },
-    { role:"Backend Developer",    date:"Jan 28, 2026", score:7.2, level:"Mid",    duration:"14 min", questions:5, badge:"💪" },
-    { role:"Junior Developer",     date:"Jan 20, 2026", score:6.4, level:"Junior", duration:"12 min", questions:4, badge:"🌱" },
-    { role:"React Developer",      date:"Jan 15, 2026", score:5.8, level:"Mid",    duration:"10 min", questions:3, badge:"📝" },
-  ];
-  const avgScore = (allHistory.reduce((a,h)=>a+h.score,0)/allHistory.length).toFixed(1);
-  const bestScore = Math.max(...allHistory.map(h=>h.score));
-  const totalMins = allHistory.reduce((a,h)=>a+parseInt(h.duration),0);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ total_sessions: 0, average_score: 0, best_score: 0, total_minutes: 0 });
+  const [allHistory, setAllHistory] = useState([]);
+  const userId = localStorage.getItem("user_id"); // Or get from context
 
-  const scoreColor = (s) => s>=9?C.green:s>=8?C.amber:s>=6?C.purpleBright:C.danger;
-  const scoreBg    = (s) => s>=9?C.greenDim:s>=8?"rgba(245,158,11,0.15)":s>=6?"rgba(139,92,246,0.15)":"rgba(239,68,68,0.1)";
-  const scoreBorder= (s) => s>=9?"rgba(16,185,129,0.3)":s>=8?"rgba(245,158,11,0.35)":s>=6?C.border2:"rgba(239,68,68,0.3)";
+  useEffect(() => {
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+
+    // Fetch interview stats
+    fetch(`${API}/interview/sessions/user/${userId}/stats`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          setStats({
+            total_sessions: data.total_sessions,
+            average_score: data.average_score,
+            best_score: data.best_score,
+            total_minutes: data.total_minutes
+          });
+        }
+      })
+      .catch(e => console.error("Error fetching stats:", e));
+
+    // Fetch all sessions
+    fetch(`${API}/interview/sessions/user/${userId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.sessions) {
+          const formatted = data.sessions.map((s, idx) => ({
+            role: s.interview_type.charAt(0).toUpperCase() + s.interview_type.slice(1) + " Interview",
+            date: new Date(s.date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }),
+            score: parseFloat(s.average_score) || 0,
+            level: s.level.charAt(0).toUpperCase() + s.level.slice(1),
+            duration: `${s.duration_minutes} min`,
+            questions: s.total_questions,
+            badge: parseFloat(s.average_score) >= 9 ? "🏆" : parseFloat(s.average_score) >= 8 ? "⭐" : parseFloat(s.average_score) >= 6 ? "📈" : "💪"
+          }));
+          setAllHistory(formatted);
+        }
+        setLoading(false);
+      })
+      .catch(e => {
+        console.error("Error fetching sessions:", e);
+        setLoading(false);
+      });
+  }, [userId]);
+
+  if (loading) {
+    return <div style={{ textAlign: "center", color: C.muted, padding: "60px 20px" }}>⏳ Loading your interview history...</div>;
+  }
+
+  const avgScore = stats.average_score || 0;
+  const bestScore = stats.best_score || 0;
+  const totalMins = stats.total_minutes || 0;
+
+  const scoreColor = (s) => s >= 9 ? C.green : s >= 8 ? C.amber : s >= 6 ? C.purpleBright : C.danger;
+  const scoreBg = (s) => s >= 9 ? C.greenDim : s >= 8 ? "rgba(245,158,11,0.15)" : s >= 6 ? "rgba(139,92,246,0.15)" : "rgba(239,68,68,0.1)";
+  const scoreBorder = (s) => s >= 9 ? "rgba(16,185,129,0.3)" : s >= 8 ? "rgba(245,158,11,0.35)" : s >= 6 ? C.border2 : "rgba(239,68,68,0.3)";
 
   return (
-    <div style={{ animation:"fadeUp 0.4s ease" }}>
+    <div style={{ animation: "fadeUp 0.4s ease" }}>
       {/* Header */}
-      <div style={{ marginBottom:32 }}>
-        <div style={{ fontSize:11, letterSpacing:"3px", textTransform:"uppercase", color:C.purpleBright, fontWeight:700, marginBottom:10 }}>Your Journey</div>
-        <h2 style={{ fontSize:32, fontWeight:900, letterSpacing:"-1px", margin:"0 0 10px", background:"linear-gradient(135deg, #F1F0FF, #A78BFA)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ fontSize: 11, letterSpacing: "3px", textTransform: "uppercase", color: C.purpleBright, fontWeight: 700, marginBottom: 10 }}>Your Journey</div>
+        <h2 style={{ fontSize: 32, fontWeight: 900, letterSpacing: "-1px", margin: "0 0 10px", background: "linear-gradient(135deg, #F1F0FF, #A78BFA)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
           Interview History
         </h2>
-        <p style={{ color:C.muted2, fontSize:15, lineHeight:1.7 }}>Track your progress across all practice sessions.</p>
+        <p style={{ color: C.muted2, fontSize: 15, lineHeight: 1.7 }}>Track your progress across all practice sessions.</p>
       </div>
 
       {/* Summary stats */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:18, marginBottom:36 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 18, marginBottom: 36 }}>
         {[
-          { label:"Total Sessions", value:allHistory.length, icon:"🎯", color:C.purpleBright },
-          { label:"Average Score",  value:`${avgScore}/10`,  icon:"⭐", color:C.amber },
-          { label:"Best Score",     value:`${bestScore}/10`, icon:"🏆", color:C.green },
-          { label:"Total Practice", value:`${totalMins}m`,   icon:"⏱️", color:C.cyan },
-        ].map((s,i) => (
-          <div key={i} style={{ borderRadius:18, padding:"22px", background:C.bg2, border:`1px solid ${C.border}`, textAlign:"center", transition:"all 0.25s" }}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor=C.border2; e.currentTarget.style.transform="translateY(-3px)";}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border; e.currentTarget.style.transform="none";}}>
-            <div style={{ fontSize:26, marginBottom:8 }}>{s.icon}</div>
-            <div style={{ fontSize:26, fontWeight:900, color:s.color }}>{s.value}</div>
-            <div style={{ fontSize:12, color:C.muted2, marginTop:4, fontWeight:600 }}>{s.label}</div>
+          { label: "Total Sessions", value: stats.total_sessions, icon: "🎯", color: C.purpleBright },
+          { label: "Average Score", value: `${avgScore}/10`, icon: "⭐", color: C.amber },
+          { label: "Best Score", value: `${bestScore}/10`, icon: "🏆", color: C.green },
+          { label: "Total Practice", value: `${totalMins}m`, icon: "⏱️", color: C.cyan },
+        ].map((s, i) => (
+          <div key={i} style={{ borderRadius: 18, padding: "22px", background: C.bg2, border: `1px solid ${C.border}`, textAlign: "center", transition: "all 0.25s" }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = C.border2; e.currentTarget.style.transform = "translateY(-3px)"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.transform = "none"; }}>
+            <div style={{ fontSize: 26, marginBottom: 8 }}>{s.icon}</div>
+            <div style={{ fontSize: 26, fontWeight: 900, color: s.color }}>{s.value}</div>
+            <div style={{ fontSize: 12, color: C.muted2, marginTop: 4, fontWeight: 600 }}>{s.label}</div>
           </div>
         ))}
       </div>
 
       {/* Score trend bar */}
-      <div style={{ borderRadius:20, padding:"24px 28px", background:C.bg2, border:`1px solid ${C.border}`, marginBottom:28 }}>
-        <div style={{ fontSize:13, fontWeight:700, marginBottom:18, color:C.muted2, textTransform:"uppercase", letterSpacing:"1px" }}>Score Trend</div>
-        <div style={{ display:"flex", alignItems:"flex-end", gap:10, height:80 }}>
-          {[...allHistory].reverse().map((h,i) => {
-            const pct = (h.score/10)*100;
-            return (
-              <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
-                <div style={{ fontSize:10, color:C.muted2, fontWeight:700 }}>{h.score}</div>
-                <div style={{ width:"100%", borderRadius:6, transition:"all 0.3s", background:`linear-gradient(180deg, ${scoreColor(h.score)}, ${scoreColor(h.score)}88)`, height:`${pct}%`, minHeight:4, boxShadow:`0 0 8px ${scoreColor(h.score)}44` }}/>
-                <div style={{ fontSize:9, color:C.muted, textAlign:"center", lineHeight:1.2 }}>{h.date.split(",")[0]}</div>
-              </div>
-            );
-          })}
+      {allHistory.length > 0 && (
+        <div style={{ borderRadius: 20, padding: "24px 28px", background: C.bg2, border: `1px solid ${C.border}`, marginBottom: 28 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 18, color: C.muted2, textTransform: "uppercase", letterSpacing: "1px" }}>Score Trend</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: 80 }}>
+            {[...allHistory].reverse().slice(0, 6).map((h, i) => {
+              const pct = (h.score / 10) * 100;
+              return (
+                <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                  <div style={{ fontSize: 10, color: C.muted2, fontWeight: 700 }}>{h.score}</div>
+                  <div style={{ width: "100%", borderRadius: 6, transition: "all 0.3s", background: `linear-gradient(180deg, ${scoreColor(h.score)}, ${scoreColor(h.score)}88)`, height: `${pct}%`, minHeight: 4, boxShadow: `0 0 8px ${scoreColor(h.score)}44` }} />
+                  <div style={{ fontSize: 9, color: C.muted, textAlign: "center", lineHeight: 1.2 }}>{h.date.split(",")[0]}</div>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Session list */}
-      <div style={{ borderRadius:20, padding:"24px 28px", background:C.bg2, border:`1px solid ${C.border}` }}>
-        <div style={{ fontSize:13, fontWeight:700, marginBottom:20, color:C.muted2, textTransform:"uppercase", letterSpacing:"1px" }}>All Sessions</div>
-        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-          {allHistory.map((r,i) => (
-            <div key={i} style={{
-              display:"flex", alignItems:"center", gap:16,
-              padding:"16px 20px", borderRadius:14, background:C.bg3,
-              border:`1px solid ${C.border}`, transition:"all 0.2s", cursor:"pointer",
-            }}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor=C.border2; e.currentTarget.style.background=C.purpleDim; e.currentTarget.style.transform="translateX(4px)";}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border; e.currentTarget.style.background=C.bg3; e.currentTarget.style.transform="none";}}>
-              <div style={{ fontSize:22, width:36, textAlign:"center" }}>{r.badge}</div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontWeight:700, fontSize:14 }}>{r.role}</div>
-                <div style={{ fontSize:11, color:C.muted2, marginTop:3 }}>{r.date} · {r.level} · {r.questions} questions · {r.duration}</div>
-              </div>
-              <div style={{ padding:"5px 14px", borderRadius:20, fontWeight:800, fontSize:13, background:scoreBg(r.score), color:scoreColor(r.score), border:`1px solid ${scoreBorder(r.score)}` }}>
-                {r.score}/10
-              </div>
+      <div style={{ borderRadius: 20, padding: "24px 28px", background: C.bg2, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 20, color: C.muted2, textTransform: "uppercase", letterSpacing: "1px" }}>All Sessions</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {allHistory.length === 0 ? (
+            <div style={{ textAlign: "center", color: C.muted, padding: "40px 20px" }}>
+              📭 No interview sessions yet. Start your first interview!
             </div>
-          ))}
+          ) : (
+            allHistory.map((r, i) => (
+              <div key={i} style={{
+                display: "flex", alignItems: "center", gap: 16,
+                padding: "16px 20px", borderRadius: 14, background: C.bg3,
+                border: `1px solid ${C.border}`, transition: "all 0.2s", cursor: "pointer",
+              }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = C.border2; e.currentTarget.style.background = C.purpleDim; e.currentTarget.style.transform = "translateX(4px)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.bg3; e.currentTarget.style.transform = "none"; }}>
+                <div style={{ fontSize: 22, width: 36, textAlign: "center" }}>{r.badge}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{r.role}</div>
+                  <div style={{ fontSize: 11, color: C.muted2, marginTop: 3 }}>{r.date} · {r.level} · {r.questions} questions · {r.duration}</div>
+                </div>
+                <div style={{ padding: "5px 14px", borderRadius: 20, fontWeight: 800, fontSize: 13, background: scoreBg(r.score), color: scoreColor(r.score), border: `1px solid ${scoreBorder(r.score)}` }}>
+                  {r.score}/10
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -1593,6 +1647,25 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
     loadSavedResumes();
   }, [user]);
 
+  const setDifficulty = async (newLevel) => {
+    setLevel(newLevel);
+    if (!interviewStarted) return;
+
+    try {
+      const res = await fetch(`${API}/interview/set-interview-level/?level=${newLevel}`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (data.success) {
+        setToast({ msg: `✅ Difficulty set to ${newLevel}. Next question will follow this level.`, type: "success" });
+      } else {
+        setToast({ msg: `⚠️ ${data.error || 'Could not set difficulty.'}`, type: "warn" });
+      }
+    } catch (err) {
+      setToast({ msg: `⚠️ Could not apply level change: ${err.message}`, type: "warn" });
+    }
+  };
+
   const sendCodeToAria = (formattedCode) => { setInput(formattedCode); };
 
   const loadSavedResumes = async () => {
@@ -1757,6 +1830,24 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
         const prevRecent = loadRecent(uid);
         const newRecent = [...prevRecent, { role: "Interview Session", date: dateStr, score: result.scored ? result.avgScore : null, level: result.level }];
         saveRecent(uid, newRecent);
+
+        // 🆕 Save interview session to backend database
+        if (user?.id) {
+          fetch(`${API}/interview/save-session/?user_id=${user.id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+          })
+            .then(r => r.json())
+            .then(data => {
+              if (data.success) {
+                console.log("✅ Interview session saved to database");
+              } else {
+                console.warn("⚠️ Could not save session to DB:", data.error);
+              }
+            })
+            .catch(e => console.error("Error saving session:", e));
+        }
+
         // Notify Dashboard with user context
         window.dispatchEvent(new CustomEvent("iq_stats_updated", { detail: { userId: uid } }));
         // Notify dashboard
@@ -1794,7 +1885,7 @@ function InterviewPage({ user, onBack, onSessionComplete }) {
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
           <div style={{ fontSize:12, color:C.muted2, fontWeight:600 }}>Difficulty:</div>
-          <select value={level} onChange={e=>setLevel(e.target.value)} style={{
+          <select value={level} onChange={e=>setDifficulty(e.target.value)} style={{
             background:C.bg3, border:`1px solid ${C.border}`, color:C.text,
             padding:"6px 12px", borderRadius:8, fontSize:13, cursor:"pointer",
             fontFamily:"inherit", fontWeight:700, outline:"none",
@@ -2263,6 +2354,7 @@ export default function App() {
       if (s) {
         const u = JSON.parse(s);
         if (u && u.email) {
+          localStorage.setItem("user_id", u.id);
           setUser(u);
           setPage("dashboard");
         }
@@ -2302,7 +2394,10 @@ export default function App() {
         .then(data => {
           if (data.success && data.user) {
             // persist session for this tab
-            try { sessionStorage.setItem("session_user", JSON.stringify(data.user)); } catch(e){}
+            try { 
+              sessionStorage.setItem("session_user", JSON.stringify(data.user));
+              localStorage.setItem("user_id", data.user.id);
+            } catch(e){}
             setUser(data.user);
             setPage("dashboard");
             // Clean URL
@@ -2316,13 +2411,19 @@ export default function App() {
   }, []);
 
   return page==="auth"         ? <AuthPage onLogin={u=>{
-                                              try{ sessionStorage.setItem("session_user", JSON.stringify(u)); }catch(e){}
+                                              try{ 
+                                                sessionStorage.setItem("session_user", JSON.stringify(u));
+                                                localStorage.setItem("user_id", u.id);
+                                              }catch(e){}
                                               setUser(u); setPage("dashboard");
                                             }} /> :
          page==="reset-password" ? <ResetPasswordPage onLogin={u=>{
-                                              try{ sessionStorage.setItem("session_user", JSON.stringify(u)); }catch(e){}
+                                              try{ 
+                                                sessionStorage.setItem("session_user", JSON.stringify(u));
+                                                localStorage.setItem("user_id", u.id);
+                                              }catch(e){}
                                               setUser(u); setPage("dashboard");
                                             }} /> :
-         page==="dashboard"     ? <Dashboard user={user} onStartInterview={()=>setPage("interview")} onLogout={()=>{ try{ sessionStorage.removeItem("session_user"); }catch(e){} setUser(null); setPage("auth"); }} /> :
+         page==="dashboard"     ? <Dashboard user={user} onStartInterview={()=>setPage("interview")} onLogout={()=>{ try{ sessionStorage.removeItem("session_user"); localStorage.removeItem("user_id"); }catch(e){} setUser(null); setPage("auth"); }} /> :
                                   <InterviewPage user={user} onBack={()=>setPage("dashboard")} onSessionComplete={()=>setPage("dashboard")} />;
 }

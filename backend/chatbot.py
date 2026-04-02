@@ -15,6 +15,12 @@ def chat_with_interviewer(user_message: str, level: str = "medium", interview_ty
     level: junior | mid | senior
     interview_type: technical | practical | hr
     """
+    # Persist the selected mode/level into session so future questions follow this context.
+    if interview_type:
+        SESSION["interview_type"] = interview_type
+    if level:
+        SESSION["level"] = level
+
     # If no explicit skills were extracted, fall back to resume text tokens.
     if not SESSION.get("skills") and SESSION.get("resume_text"):
         import re
@@ -35,10 +41,11 @@ def chat_with_interviewer(user_message: str, level: str = "medium", interview_ty
     # Map quick-action requests (chip buttons) to follows-up (do NOT evaluate as answer)
     quickCommands = [
         "ask about my strengths", "ask about teamwork", "ask about career goals", "ask about conflict resolution",
-        "next hr question", "give me a python problem", "give me a javascript problem", "give me an array problem", "give me a string problem", "next coding question"
+        "next hr question", "give me a python problem", "give me a javascript problem", "give me an array problem", "give me a string problem", "next coding question",
+        "ask me a react question", "ask me a frontend question"
     ]
     msg_lower = user_message.strip().lower()
-    if msg_lower in quickCommands:
+    if msg_lower in quickCommands or "react" in msg_lower or "frontend" in msg_lower:
         # format a direct question generation request
         direct_topic = msg_lower
         if "strength" in msg_lower:
@@ -89,6 +96,8 @@ def chat_with_interviewer(user_message: str, level: str = "medium", interview_ty
             question = "Write a function to check whether a string is a palindrome."
         elif "next coding" in msg_lower:
             question = "Write a function to find the largest number in an array without using built-in max()."
+        elif "react" in msg_lower or "frontend" in msg_lower:
+            question = "Explain the key differences between React and React Native, and how component lifecycle differs in React 18 with hooks."
         else:
             question = "Write a function that reverses words in a sentence while preserving word order."
 

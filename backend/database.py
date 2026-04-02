@@ -78,6 +78,22 @@ class PasswordReset(Base):
     used = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# ─── INTERVIEW SESSION MODEL ──────────────────────────────────────────────────
+class InterviewSession(Base):
+    __tablename__ = "interview_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    interview_type = Column(String, nullable=False)  # technical, practical, hr
+    level = Column(String, nullable=False)  # junior, mid, senior
+    total_questions = Column(Integer, default=0)
+    average_score = Column(String, nullable=True)  # e.g., "7.5"
+    duration_minutes = Column(Integer, default=0)
+    history_data = Column(Text, nullable=True)  # JSON string of Q&A history
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+
 def get_db():
     """Dependency for getting database session"""
     db = SessionLocal()

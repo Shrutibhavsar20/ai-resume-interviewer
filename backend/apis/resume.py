@@ -10,8 +10,14 @@ router = APIRouter(prefix="/resume", tags=["Resume Management"])
 
 
 @router.post("/upload/")
-async def upload_resume(file: UploadFile = File(...), user_id: int = Form(None)):
-    """Upload and process a resume file (PDF or DOCX)"""
+async def upload_resume(file: UploadFile = File(...), user_id: int = Form(None), force_reset: bool = Form(False)):
+    """Upload and process a resume file (PDF or DOCX)
+    
+    Args:
+        file: Resume file (PDF or DOCX)
+        user_id: User ID for persistence
+        force_reset: If True, explicitly reset active interview. If False and interview active, return warning.
+    """
     file_bytes = await file.read()
     raw_text = extract_text_from_bytes(file_bytes, file.filename)
     clean_resume = clean_text(raw_text)
@@ -20,6 +26,20 @@ async def upload_resume(file: UploadFile = File(...), user_id: int = Form(None))
         skills_list = [s.strip() for s in f.readlines()]
 
     skills = extract_skills(clean_resume, skills_list)
+
+    # Check if there's an active interview
+    has_active_interview = len(SESSION.get("history", [])) > 0 or SESSION.get("current_question") is not None
+    
+    if has_active_interview and not force_reset:
+        # Return warning — don't reset yet
+        return {
+            "success": False,
+            "error": "Active interview in progress",
+            "warning": "You have an active interview session. Uploading a new resume will reset your progress, history, and current question.",
+            "requires_confirmation": True,
+            "message": "Please confirm if you want to proceed with uploading a new resume.",
+            "resume_filename": file.filename
+        }
 
     # Persist to DB if user logged in
     resume_id = None
@@ -42,7 +62,7 @@ async def upload_resume(file: UploadFile = File(...), user_id: int = Form(None))
         finally:
             db.close()
 
-    # Save skills to session for interview
+    # Save skills to session for interview (reset only if confirmed or no active interview)
     SESSION["skills"] = skills
     SESSION["resume_text"] = clean_resume
     SESSION["current_question"] = None
@@ -54,7 +74,8 @@ async def upload_resume(file: UploadFile = File(...), user_id: int = Form(None))
         "resume_id": resume_id,
         "resume_text": clean_resume[:500],
         "skills_found": skills,
-        "message": "Resume uploaded successfully!"
+        "message": "Resume uploaded successfully! Interview reset with new resume.",
+        "confirmed": True
     }
 
 
